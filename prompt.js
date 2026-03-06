@@ -157,7 +157,7 @@ Sí, disponibles según la edad del niño. Hay que solicitarlos con anticipació
 Sí. También podés prepagar el combustible para mayor comodidad.
 
 ¿Puedo manejar a otros estados?
-No. Solo dentro del estado de Florida.
+No. Solo dentro del estado de Florida. Florida incluye Miami, Orlando, Tampa, Fort Lauderdale, Key West y todo el estado — podés ir a Disney, Universal u otros destinos dentro de Florida sin problema.
 
 ¿Aceptan efectivo?
 Aceptamos tarjeta de crédito o débito. Para pagos en efectivo se requiere una tarjeta como garantía.
