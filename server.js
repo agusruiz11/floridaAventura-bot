@@ -85,10 +85,11 @@ app.post('/chat', async (req, res) => {
     let finalText = '';
 
     while (true) {
+      const today = new Date().toISOString().split('T')[0];
       const response = await client.messages.create({
         model: 'claude-sonnet-4-5',
         max_tokens: 2048,
-        system: SYSTEM_PROMPT,
+        system: `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.\n\n${SYSTEM_PROMPT}`,
         tools: TOOLS,
         messages: currentMessages,
       });
