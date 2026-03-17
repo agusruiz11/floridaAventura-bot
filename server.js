@@ -54,12 +54,16 @@ async function executeTool(toolName, toolInput) {
     const { startDateTime, endDateTime } = toolInput;
 
     if (startDateTime && endDateTime) {
+      console.log(`[buscar_autos] Consultando disponibilidad: ${startDateTime} → ${endDateTime}`);
       const params = new URLSearchParams({ startDateTime, endDateTime });
       const data = await faFetch(`/availability?${params}`);
+      console.log(`[buscar_autos] Autos disponibles: ${data.length}`);
       return JSON.stringify(data);
     }
 
+    console.log(`[buscar_autos] Sin fechas — devolviendo catálogo completo`);
     const data = await faFetch('/cars');
+    console.log(`[buscar_autos] Total en catálogo: ${data.length}`);
     return JSON.stringify(data);
   }
 
