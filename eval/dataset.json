@@ -172,7 +172,7 @@
     "input": "Ya estoy en Miami, las fechas serían desde hoy 18 de marzo a las 11:30 AM hasta el 24 de marzo a las 7:00 PM",
     "debe_hacer": "Preguntar cuántas personas viajan y llamar a buscar_autos con las fechas — sin sugerir categorías",
     "no_debe_hacer": "Mencionar sedan, SUV, compacto u otras categorías antes de consultar el catálogo",
-    "keywords_pass": ["personas", "cuántas", "USD", "pasajeros"],
+    "keywords_pass": ["personas", "cuántas", "USD", "pasajeros", "cuántas personas", "personas viajan"],
     "keywords_fail": ["sedan", "SUV", "compacto", "familiar"]
   },
 
@@ -270,7 +270,7 @@
     "debe_hacer": "Aclarar que es pre-reserva, que Patricia debe validarla para que sea efectiva",
     "no_debe_hacer": "Confirmar que la reserva está activa o lista",
     "keywords_pass": ["pre-reserva", "Patricia", "validar", "confirmar"],
-    "keywords_fail": ["¡Confirmada!", "está confirmada", "todo listo", "está activa"],
+    "keywords_fail": ["¡Confirmada!", "queda confirmada ✅", "reserva confirmada", "todo listo", "está activa"],
     "historial_previo": [
       { "role": "user", "content": "Mi nombre es Ana López, teléfono +54 9 11 5555-1234, vuelo AA 100 a las 9am, vuelo de salida AA 200, sin sillita" },
       { "role": "assistant", "content": "Anotado, Ana. Avancé con tu pre-reserva.\n\n⚠️ Tené en cuenta: Patricia te va a escribir por WhatsApp para confirmar. Si no recibís su mensaje o no respondés, la reserva queda sin efecto." }
