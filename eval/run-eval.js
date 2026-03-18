@@ -8,11 +8,17 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── Argumento --categoria ────────────────────────────────────────────────────
+// ─── Argumentos --categoria y --casos ────────────────────────────────────────
 
 const args = process.argv.slice(2);
+
 const categoriaIdx = args.findIndex(a => a === '--categoria');
 const categoriaFiltro = categoriaIdx !== -1 ? args[categoriaIdx + 1]?.toUpperCase() : null;
+
+const casosIdx = args.findIndex(a => a === '--casos');
+const casosFiltro = casosIdx !== -1
+  ? args[casosIdx + 1]?.toUpperCase().split(',').map(s => s.trim()).filter(Boolean)
+  : null;
 
 // ─── Tool definition (idéntica a server.js) ───────────────────────────────────
 
@@ -188,9 +194,13 @@ async function main() {
     readFileSync(join(__dirname, 'dataset.json'), 'utf-8')
   );
 
-  const casos = categoriaFiltro
+  let casos = categoriaFiltro
     ? dataset.filter(c => c.id.startsWith(categoriaFiltro))
     : dataset;
+
+  if (casosFiltro) {
+    casos = casos.filter(c => casosFiltro.includes(c.id.toUpperCase()));
+  }
 
   if (casos.length === 0) {
     console.error(`No se encontraron casos para la categoría "${categoriaFiltro}".`);
