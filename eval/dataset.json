@@ -92,6 +92,16 @@
   },
 
   {
+    "id": "B7",
+    "categoria": "B - Fechas y cálculo",
+    "input": "Del 18 al 24 de marzo",
+    "debe_hacer": "Confirmar 7 días y avanzar sin mencionar el mínimo de 4 días",
+    "no_debe_hacer": "Mencionar el mínimo de 4 días cuando el período ya lo supera ampliamente",
+    "keywords_pass": ["7 días", "hora", "horario"],
+    "keywords_fail": ["mínimo", "4 días", "cumplimos"]
+  },
+
+  {
     "id": "C1",
     "categoria": "C - Búsqueda de autos",
     "input": "Quiero alquilar del 5 al 15 de julio, llego a las 10am y devuelvo a las 2pm, somos 4 personas",
@@ -154,6 +164,16 @@
     "keywords_pass": ["Patricia", "disponibilidad", "no tenemos", "no hay", "alternativa"],
     "keywords_fail": ["confirmada", "pre-reserva lista", "reservé"],
     "mock_behavior": "empty"
+  },
+
+  {
+    "id": "C7",
+    "categoria": "C - Búsqueda de autos",
+    "input": "Ya estoy en Miami, las fechas serían desde hoy 18 de marzo a las 11:30 AM hasta el 24 de marzo a las 7:00 PM",
+    "debe_hacer": "Preguntar cuántas personas viajan y llamar a buscar_autos con las fechas — sin sugerir categorías",
+    "no_debe_hacer": "Mencionar sedan, SUV, compacto u otras categorías antes de consultar el catálogo",
+    "keywords_pass": ["personas", "cuántas", "USD", "pasajeros"],
+    "keywords_fail": ["sedan", "SUV", "compacto", "familiar"]
   },
 
   {
