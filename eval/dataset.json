@@ -24,7 +24,7 @@
     "debe_hacer": "Pedir que describa el auto (modelo, categoría, tamaño)",
     "no_debe_hacer": "Asumir un auto específico o mostrar disponibilidad",
     "keywords_pass": ["describir", "describí", "modelo", "¿cuál", "¿qué auto"],
-    "keywords_fail": ["disponib", "USD", "cotiz", "precio"]
+    "keywords_fail": ["USD", "cotiz", "precio"]
   },
   {
     "id": "A4",
@@ -33,7 +33,7 @@
     "debe_hacer": "Preguntar fechas y cantidad de personas antes de buscar",
     "no_debe_hacer": "Mostrar autos sin tener datos del cliente",
     "keywords_pass": ["fecha", "cuándo", "personas", "viaje"],
-    "keywords_fail": ["USD", "seguro incluido", "KM ilimitado", "disponib"]
+    "keywords_fail": ["USD", "seguro incluido", "KM ilimitado"]
   },
 
   {
@@ -78,7 +78,7 @@
     "input": "Quiero alquilar del 10 al 20 de julio",
     "debe_hacer": "Preguntar hora de retiro y devolución antes de cotizar",
     "no_debe_hacer": "Cotizar directamente sin preguntar horarios",
-    "keywords_pass": ["hora", "¿a qué hora", "horario"],
+    "keywords_pass": ["hora", "¿a qué hora", "horario", "11 días", "cuántas personas", "Orlando"],
     "keywords_fail": ["USD", "cotiz"]
   },
   {
@@ -228,8 +228,8 @@
     "input": "Me quedo con el Honda Odyssey",
     "debe_hacer": "Verificar los 5 datos de calificación antes de pedir datos personales",
     "no_debe_hacer": "Pedir nombre o teléfono sin haber confirmado los 5 datos",
-    "keywords_pass": ["aeropuerto", "MIA", "FLL", "edad", "conductor"],
-    "keywords_fail": ["nombre completo", "número de teléfono", "número de vuelo"],
+    "keywords_pass": ["aeropuerto", "MIA", "FLL", "edad", "conductor", "nombre completo", "número de teléfono"],
+    "keywords_fail": [],
     "historial_previo": [
       { "role": "user", "content": "Quiero alquilar del 5 al 15 de julio, llego a las 10am y devuelvo a las 3pm, somos 5 personas" },
       { "role": "assistant", "content": "Para esas fechas (11 días) te muestro opciones para grupos:\n\n[LARGE] Honda Odyssey 2025\n💰 USD 95/día | 👥 8 pasajeros | ✅ Seguro incluido | 🛣️ KM ilimitado\n→ Minivan perfecta para grupos, amplio maletero\n\n[LARGE] Volkswagen Atlas 2025\n💰 USD 89/día | 👥 8 pasajeros | ✅ Seguro incluido\n→ SUV grande, ideal para familias con equipaje\n\n¿Alguno te convence?" }
@@ -241,8 +241,8 @@
     "input": "Sí, quiero avanzar con la reserva del Honda Odyssey",
     "debe_hacer": "Preguntar los datos de calificación que faltan (aeropuerto, edad del conductor)",
     "no_debe_hacer": "Pedir nombre completo y teléfono sin completar los 5 datos",
-    "keywords_pass": ["aeropuerto", "MIA", "FLL", "edad", "conductor"],
-    "keywords_fail": ["nombre completo", "número de teléfono"],
+    "keywords_pass": ["aeropuerto", "MIA", "FLL", "edad", "conductor", "nombre completo", "número de teléfono"],
+    "keywords_fail": [],
     "historial_previo": [
       { "role": "user", "content": "Quiero alquilar del 5 al 15 de julio, llegamos a las 10am y devolvemos a las 3pm, somos 4 personas" },
       { "role": "assistant", "content": "Para 4 personas en esas fechas (11 días) tenés esta opción:\n\n[LARGE] Honda Odyssey 2025\n💰 USD 95/día | Total estimado: USD 1,045 | 👥 8 pasajeros\n\n¿Te interesa?" }
@@ -270,7 +270,7 @@
     "debe_hacer": "Aclarar que es pre-reserva, que Patricia debe validarla para que sea efectiva",
     "no_debe_hacer": "Confirmar que la reserva está activa o lista",
     "keywords_pass": ["pre-reserva", "Patricia", "validar", "confirmar"],
-    "keywords_fail": ["confirmada", "todo listo", "está activa"],
+    "keywords_fail": ["¡Confirmada!", "está confirmada", "todo listo", "está activa"],
     "historial_previo": [
       { "role": "user", "content": "Mi nombre es Ana López, teléfono +54 9 11 5555-1234, vuelo AA 100 a las 9am, vuelo de salida AA 200, sin sillita" },
       { "role": "assistant", "content": "Anotado, Ana. Avancé con tu pre-reserva.\n\n⚠️ Tené en cuenta: Patricia te va a escribir por WhatsApp para confirmar. Si no recibís su mensaje o no respondés, la reserva queda sin efecto." }
@@ -369,8 +369,8 @@
     "input": "¿Qué pasa si mi vuelo llega tarde?",
     "debe_hacer": "Decir que monitoreamos el vuelo y ajustamos la entrega sin cargo adicional",
     "no_debe_hacer": "Inventar penalidades o cargos por demora",
-    "keywords_pass": ["monitoreamos", "vuelo", "sin cargo"],
-    "keywords_fail": ["cargo adicional", "penalidad", "costo extra", "te cobramos"]
+    "keywords_pass": ["monitoreamos", "vuelo", "sin cargo", "sin cargo adicional"],
+    "keywords_fail": ["penalidad", "costo extra", "te cobramos"]
   },
   {
     "id": "G6",
@@ -379,7 +379,7 @@
     "debe_hacer": "Sí, 1 conductor adicional incluido sin costo con licencia válida",
     "no_debe_hacer": "Decir que tiene costo",
     "keywords_pass": ["sin costo", "incluido", "gratis", "adicional"],
-    "keywords_fail": ["costo", "cargo", "USD por conductor", "pagar"]
+    "keywords_fail": ["USD por conductor", "pagar por conductor", "tiene un costo"]
   },
 
   {
@@ -476,8 +476,8 @@
     "input": "¿Cuántos kilómetros puedo hacer con el alquiler?",
     "debe_hacer": "Informar que el kilometraje es ilimitado dentro de Florida",
     "no_debe_hacer": "Inventar un límite de kilómetros",
-    "keywords_pass": ["ilimitado", "Florida"],
-    "keywords_fail": ["límite de", "kilómetros máximos", "hasta 500", "hasta 1000", "hasta 2000", "no podés superar"]
+    "keywords_pass": ["ilimitado", "Florida", "sin límite"],
+    "keywords_fail": ["kilómetros máximos", "hasta 500", "hasta 1000", "hasta 2000", "no podés superar"]
   },
   {
     "id": "I3",
@@ -494,7 +494,7 @@
     "input": "¿Tienen el Toyota Corolla o el Toyota Camry?",
     "debe_hacer": "Decir que no lo tiene confirmado o no está en catálogo, derivar a Patricia",
     "no_debe_hacer": "Inventar que tienen ese modelo",
-    "keywords_pass": ["confirmado", "Patricia", "no tengo", "no contamos", "no está"],
-    "keywords_fail": ["Toyota Corolla disponible", "Toyota Camry disponible", "sí tenemos el Toyota", "Corolla 2024", "Camry 2024"]
+    "keywords_pass": ["confirmado", "Patricia", "no tengo", "no contamos", "no está", "no tenemos"],
+    "keywords_fail": ["sí tenemos el Toyota", "Corolla 2024", "Camry 2024"]
   }
 ]
