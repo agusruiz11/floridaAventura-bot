@@ -6,7 +6,7 @@ Eval de nivel 2: el script manda cada caso al bot real (misma API, mismo system 
 
 ```
 eval/
-├── dataset.json     # 48 casos de prueba organizados por categoría
+├── dataset.json     # 50 casos de prueba organizados por categoría
 ├── run-eval.js      # Script principal: corre los casos y genera el reporte
 ├── review.js        # Script interactivo de revisión manual
 ├── results/         # Archivos JSON generados (YYYY-MM-DD-HH-mm.json)
@@ -21,7 +21,7 @@ eval/
 node eval/run-eval.js
 ```
 
-Corre los 48 casos, muestra progreso en consola y guarda los resultados en `eval/results/`.
+Corre los 50 casos, muestra progreso en consola y guarda los resultados en `eval/results/`.
 
 ### 2. Correr solo una categoría
 
@@ -31,7 +31,15 @@ node eval/run-eval.js --categoria B
 
 Categorías disponibles: `A`, `B`, `C`, `D`, `E`, `F`, `G`, `H`, `I`
 
-### 3. Hacer la revisión manual
+### 3. Correr casos específicos
+
+```bash
+node eval/run-eval.js --casos B4,E4,C7
+```
+
+Útil para re-evaluar casos puntuales después de un fix en el prompt. Se puede combinar con `--categoria` (actúa como segundo filtro).
+
+### 4. Hacer la revisión manual
 
 ```bash
 node eval/review.js
@@ -68,8 +76,8 @@ Cada caso tiene tres campos de resultado:
 | Cat | Tema | Casos |
 |---|---|---|
 | A | Primer contacto | A1–A4 |
-| B | Fechas y cálculo de días | B1–B6 |
-| C | Búsqueda de autos | C1–C6 |
+| B | Fechas y cálculo de días | B1–B7 |
+| C | Búsqueda de autos | C1–C7 |
 | D | Destinos y SunPass | D1–D5 |
 | E | Pre-reserva | E1–E5 |
 | F | Precios y negociación | F1–F4 |
