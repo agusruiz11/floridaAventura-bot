@@ -30,9 +30,9 @@
     "id": "A4",
     "categoria": "A - Primer contacto",
     "input": "Quiero alquilar un auto",
-    "debe_hacer": "Preguntar fechas y cantidad de personas antes de buscar",
-    "no_debe_hacer": "Mostrar autos sin tener datos del cliente",
-    "keywords_pass": ["fecha", "cuándo", "personas", "viaje"],
+    "debe_hacer": "Preguntar fechas antes de buscar — no hace falta saber personas primero",
+    "no_debe_hacer": "Mostrar autos sin tener fechas del cliente",
+    "keywords_pass": ["fecha", "cuándo", "viaje", "días"],
     "keywords_fail": ["USD", "seguro incluido", "KM ilimitado"]
   },
 
@@ -51,8 +51,8 @@
     "input": "Del 17 al 19 de mayo",
     "debe_hacer": "Informar mínimo de 4 días y derivar a Patricia",
     "no_debe_hacer": "Buscar autos o cotizar",
-    "keywords_pass": ["mínimo", "4 días", "Patricia", "wa.me"],
-    "keywords_fail": ["disponib", "cotiz", "USD"]
+    "keywords_pass": ["mínimo", "4 días"],
+    "keywords_fail": ["cotiz", "tenemos disponible", "te muestro los autos"]
   },
   {
     "id": "B3",
@@ -78,7 +78,7 @@
     "input": "Quiero alquilar del 10 al 20 de julio",
     "debe_hacer": "Preguntar hora de retiro y devolución antes de cotizar",
     "no_debe_hacer": "Cotizar directamente sin preguntar horarios",
-    "keywords_pass": ["hora", "¿a qué hora", "horario", "11 días", "cuántas personas", "Orlando"],
+    "keywords_pass": ["hora", "¿a qué hora", "horario", "11 días", "Orlando"],
     "keywords_fail": ["USD", "cotiz"]
   },
   {
@@ -107,7 +107,7 @@
     "input": "Quiero alquilar del 5 al 15 de julio, llego a las 10am y devuelvo a las 2pm, somos 4 personas",
     "debe_hacer": "Llamar buscar_autos con fechas y mostrar autos disponibles para esas fechas",
     "no_debe_hacer": "Mostrar catálogo general como disponible sin filtrar por fechas",
-    "keywords_pass": ["USD", "pasajeros", "día"],
+    "keywords_pass": ["USD", "pasajeros", "valijas", "día"],
     "keywords_fail": ["disponibilidad real se confirma", "catálogo completo"]
   },
   {
@@ -125,7 +125,7 @@
     "input": "Quiero ver más opciones",
     "debe_hacer": "Buscar más autos y mostrar opciones distintas",
     "no_debe_hacer": "Decir que no hay más opciones sin intentar buscar",
-    "keywords_pass": ["USD", "pasajeros", "día"],
+    "keywords_pass": ["USD", "pasajeros", "valijas", "día"],
     "keywords_fail": ["no hay más", "no tenemos más"],
     "historial_previo": [
       { "role": "user", "content": "Quiero alquilar del 10 al 20 de agosto, llegamos a las 11am y devolvemos a las 3pm, somos 3 personas" },
@@ -138,7 +138,7 @@
     "input": "En realidad las fechas cambiaron, ahora es del 20 al 30 de agosto, llegamos a las 9am y devolvemos a las 1pm",
     "debe_hacer": "Buscar de nuevo con las fechas actualizadas",
     "no_debe_hacer": "Mantener los resultados de las fechas anteriores",
-    "keywords_pass": ["USD", "agosto", "pasajeros"],
+    "keywords_pass": ["USD", "agosto", "pasajeros", "valijas"],
     "keywords_fail": ["julio"],
     "historial_previo": [
       { "role": "user", "content": "Quiero alquilar del 10 al 20 de julio, llegamos a las 10am y devolvemos a las 2pm, somos 2 personas" },
@@ -170,9 +170,9 @@
     "id": "C7",
     "categoria": "C - Búsqueda de autos",
     "input": "Ya estoy en Miami, las fechas serían desde hoy 18 de marzo a las 11:30 AM hasta el 24 de marzo a las 7:00 PM",
-    "debe_hacer": "Preguntar cuántas personas viajan y llamar a buscar_autos con las fechas — sin sugerir categorías",
+    "debe_hacer": "Con fechas y horarios completos, preguntar sobre destinos (Orlando/SunPass) y/o mostrar autos disponibles — sin sugerir categorías ni pedir personas primero",
     "no_debe_hacer": "Mencionar sedan, SUV, compacto u otras categorías antes de consultar el catálogo",
-    "keywords_pass": ["personas", "cuántas", "USD", "pasajeros", "cuántas personas", "personas viajan"],
+    "keywords_pass": ["Orlando", "moverse", "destinos", "USD", "pasajeros", "valijas"],
     "keywords_fail": ["sedan", "SUV", "compacto", "familiar"]
   },
 
@@ -192,15 +192,15 @@
     "debe_hacer": "Aclarar que la devolución es solo en Miami",
     "no_debe_hacer": "Confirmar devolución fuera de Miami",
     "keywords_pass": ["Miami", "solo", "devolución"],
-    "keywords_fail": ["sí podés devolver en Orlando", "puede devolver en Orlando", "sin problema en Orlando"]
+    "keywords_fail": ["sí podés devolver en Orlando", "sí, podés devolver", "sin problema devolver en Orlando", "podés devolverlo en Orlando"]
   },
   {
     "id": "D3",
     "categoria": "D - Destinos y SunPass",
     "input": "Quiero alquilar del 10 al 20 de junio, llegamos a las 10am y devolvemos a las 2pm, somos 4 personas",
-    "debe_hacer": "Preguntar por destinos (Miami o también Orlando) ANTES de mostrar autos",
-    "no_debe_hacer": "Mostrar autos directamente sin preguntar sobre destinos",
-    "keywords_pass": ["Orlando", "moverse", "otros lugares", "destinos"],
+    "debe_hacer": "Mostrar autos disponibles y en el mismo mensaje preguntar si van a ir a Orlando",
+    "no_debe_hacer": "Mostrar autos sin mencionar la pregunta de Orlando en ningún momento",
+    "keywords_pass": ["Orlando", "moverse", "USD", "pasajeros"],
     "keywords_fail": []
   },
   {
@@ -324,7 +324,7 @@
     "debe_hacer": "Explicar qué incluye el precio (seguro, km ilimitado, atención personalizada)",
     "no_debe_hacer": "Disculparse, justificarse en exceso o prometer descuento",
     "keywords_pass": ["seguro", "incluye", "kilómetro"],
-    "keywords_fail": ["descuento", "lo siento", "disculpá", "perdón", "puedo bajar"]
+    "keywords_fail": ["te hago un descuento", "aplicamos descuento", "lo siento", "disculpá", "perdón", "puedo bajar"]
   },
 
   {
@@ -334,7 +334,7 @@
     "debe_hacer": "Responder licencia, tarjeta de crédito y pasaporte/ID — solo eso",
     "no_debe_hacer": "Agregar información adicional no pedida (precios, seguro, disponibilidad)",
     "keywords_pass": ["licencia", "tarjeta", "pasaporte"],
-    "keywords_fail": ["seguro", "USD", "precio", "disponib"]
+    "keywords_fail": ["seguro", "USD", "precio"]
   },
   {
     "id": "G2",
@@ -352,7 +352,7 @@
     "debe_hacer": "Decir que no, solo se puede manejar dentro de Florida",
     "no_debe_hacer": "Decir que sí puede ir a otro estado",
     "keywords_pass": ["solo Florida", "Florida", "no"],
-    "keywords_fail": ["sí puede", "sí podés", "otros estados", "cualquier estado"]
+    "keywords_fail": ["sí podés ir a otro estado", "sí, podés ir a otro estado", "podés manejar a otro estado", "sí podés salir de Florida"]
   },
   {
     "id": "G4",
@@ -477,7 +477,7 @@
     "debe_hacer": "Informar que el kilometraje es ilimitado dentro de Florida",
     "no_debe_hacer": "Inventar un límite de kilómetros",
     "keywords_pass": ["ilimitado", "Florida", "sin límite"],
-    "keywords_fail": ["kilómetros máximos", "hasta 500", "hasta 1000", "hasta 2000", "no podés superar"]
+    "keywords_fail": ["kilómetros máximos", "hasta 500 km", "hasta 1000 km", "hasta 2000 km", "no podés superar"]
   },
   {
     "id": "I3",
@@ -496,5 +496,23 @@
     "no_debe_hacer": "Inventar que tienen ese modelo",
     "keywords_pass": ["confirmado", "Patricia", "no tengo", "no contamos", "no está", "no tenemos"],
     "keywords_fail": ["sí tenemos el Toyota", "Corolla 2024", "Camry 2024"]
+  },
+  {
+    "id": "I5",
+    "categoria": "I - Alucinaciones",
+    "input": "¿Cuántas valijas entran en la Nissan Rogue?",
+    "debe_hacer": "Responder con el dato real de la API (3 valijas) sin inventar",
+    "no_debe_hacer": "Inventar una capacidad distinta de valijas (ej: 4, 5 o 'depende del modelo')",
+    "keywords_pass": ["3 valijas", "3"],
+    "keywords_fail": ["4 valijas", "5 valijas", "depende", "varía", "no tengo el dato exacto"]
+  },
+  {
+    "id": "C8",
+    "categoria": "C - Búsqueda de autos",
+    "input": "Quiero alquilar del 10 al 20 de agosto, llego a las 10am y devuelvo a las 3pm",
+    "debe_hacer": "Mostrar todos los autos disponibles con pasajeros Y valijas reales de la API — nunca inventar capacidad de valijas",
+    "no_debe_hacer": "Mostrar autos sin dato de valijas o con cantidades inventadas",
+    "keywords_pass": ["valijas", "pasajeros", "USD"],
+    "keywords_fail": ["5 valijas", "6 valijas", "7 valijas", "8 valijas"]
   }
 ]

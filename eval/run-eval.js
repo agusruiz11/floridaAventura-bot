@@ -48,49 +48,20 @@ const TOOLS = [
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
+// Flota real sincronizada con https://api.floridaaventura.com/public/cars (2026-03-30)
 const MOCK_CARS = [
-  {
-    id: 1,
-    brand: 'Honda',
-    model: 'HRV',
-    name: 'Honda HRV',
-    year: 2025,
-    color: 'Gris',
-    passengersAmount: 5,
-    manual: false,
-    suitcasesAmount: 3,
-    pricePerDay: 55.0,
-    type: 'MEDIUM',
-    imageUrl: 'https://example.com/hrv.jpg',
-  },
-  {
-    id: 7,
-    brand: 'Honda',
-    model: 'Odyssey',
-    name: 'Honda Odyssey',
-    year: 2025,
-    color: 'Blanco',
-    passengersAmount: 8,
-    manual: false,
-    suitcasesAmount: 5,
-    pricePerDay: 95.0,
-    type: 'LARGE',
-    imageUrl: 'https://example.com/odyssey.jpg',
-  },
-  {
-    id: 10,
-    brand: 'Volkswagen',
-    model: 'Atlas',
-    name: 'Volkswagen Atlas',
-    year: 2025,
-    color: 'Negro',
-    passengersAmount: 8,
-    manual: false,
-    suitcasesAmount: 4,
-    pricePerDay: 89.0,
-    type: 'LARGE',
-    imageUrl: 'https://example.com/atlas.jpg',
-  },
+  { id: 1,  brand: 'Honda',      model: 'HRV',       name: 'Honda HRV',                      showColorInName: false, year: 2025, color: 'Gris',            passengersAmount: 5, manual: false, suitcasesAmount: 3, pricePerDay: 55.0, type: 'MEDIUM', imageUrl: 'https://example.com/hrv.jpg' },
+  { id: 2,  brand: 'Nissan',     model: 'Kicks',     name: 'Nissan Kicks',                   showColorInName: false, year: 2024, color: 'Gris',            passengersAmount: 5, manual: false, suitcasesAmount: 3, pricePerDay: 54.0, type: 'MEDIUM', imageUrl: 'https://example.com/kicks.jpg' },
+  { id: 3,  brand: 'Nissan',     model: 'New Kicks', name: 'Nissan New Kicks',               showColorInName: false, year: 2025, color: 'Blanca',          passengersAmount: 5, manual: false, suitcasesAmount: 3, pricePerDay: 55.0, type: 'MEDIUM', imageUrl: 'https://example.com/new-kicks.jpg' },
+  { id: 4,  brand: 'Nissan',     model: 'Rogue',     name: 'Nissan Rogue(Blanca)',           showColorInName: true,  year: 2024, color: 'Blanca',          passengersAmount: 5, manual: false, suitcasesAmount: 3, pricePerDay: 59.0, type: 'MEDIUM', imageUrl: 'https://example.com/rogue-blanca.jpg' },
+  { id: 5,  brand: 'Nissan',     model: 'Rogue',     name: 'Nissan Rogue(Camel)',            showColorInName: true,  year: 2024, color: 'Camel',           passengersAmount: 5, manual: false, suitcasesAmount: 3, pricePerDay: 59.0, type: 'MEDIUM', imageUrl: 'https://example.com/rogue-camel.jpg' },
+  { id: 6,  brand: 'Nissan',     model: 'Rogue',     name: 'Nissan Rogue(Negra)',            showColorInName: true,  year: 2024, color: 'Negra',           passengersAmount: 5, manual: false, suitcasesAmount: 3, pricePerDay: 59.0, type: 'MEDIUM', imageUrl: 'https://example.com/rogue-negra.jpg' },
+  { id: 7,  brand: 'Honda',      model: 'Odyssey',   name: 'Honda Odyssey',                  showColorInName: false, year: 2025, color: 'Celeste',         passengersAmount: 8, manual: false, suitcasesAmount: 4, pricePerDay: 78.0, type: 'LARGE',  imageUrl: 'https://example.com/odyssey.jpg' },
+  { id: 8,  brand: 'Honda',      model: 'CRV',       name: 'Honda CRV',                      showColorInName: false, year: 2024, color: 'Blanca',          passengersAmount: 5, manual: false, suitcasesAmount: 3, pricePerDay: 62.0, type: 'MEDIUM', imageUrl: 'https://example.com/crv.jpg' },
+  { id: 9,  brand: 'Volkswagen', model: 'Tiguan',    name: 'Volkswagen Tiguan',              showColorInName: false, year: 2024, color: 'Gris',            passengersAmount: 7, manual: false, suitcasesAmount: 2, pricePerDay: 62.0, type: 'LARGE',  imageUrl: 'https://example.com/tiguan.jpg' },
+  { id: 10, brand: 'Volkswagen', model: 'Atlas',     name: 'Volkswagen Atlas(Negra)',        showColorInName: true,  year: 2025, color: 'Negra',           passengersAmount: 8, manual: false, suitcasesAmount: 2, pricePerDay: 65.0, type: 'LARGE',  imageUrl: 'https://example.com/atlas-negra.jpg' },
+  { id: 11, brand: 'Volkswagen', model: 'Atlas',     name: 'Volkswagen Atlas(Cristal (Negra))', showColorInName: true, year: 2025, color: 'Cristal (Negra)', passengersAmount: 8, manual: false, suitcasesAmount: 2, pricePerDay: 65.0, type: 'LARGE',  imageUrl: 'https://example.com/atlas-cristal.jpg' },
+  { id: 12, brand: 'Hyunday',    model: 'Santa Fe',  name: 'Hyunday Santa Fe',               showColorInName: false, year: 2026, color: 'Blanca',          passengersAmount: 7, manual: false, suitcasesAmount: 2, pricePerDay: 65.0, type: 'LARGE',  imageUrl: 'https://example.com/santa-fe.jpg' },
 ];
 
 // ─── Mock tool executor ───────────────────────────────────────────────────────
