@@ -149,6 +149,7 @@ app.post('/chat', async (req, res) => {
       break;
     }
 
+    console.log(`[/chat] Respondiendo con ${lastSearchImages.length} imágenes`);
     res.json({ response: finalText, images: lastSearchImages });
   } catch (err) {
     console.error('Error en /chat:', err.message);
