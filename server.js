@@ -53,18 +53,23 @@ async function executeTool(toolName, toolInput) {
   if (toolName === 'buscar_autos') {
     const { startDateTime, endDateTime } = toolInput;
 
+    let data;
     if (startDateTime && endDateTime) {
       console.log(`[buscar_autos] Consultando disponibilidad: ${startDateTime} → ${endDateTime}`);
       const params = new URLSearchParams({ startDateTime, endDateTime });
-      const data = await faFetch(`/availability?${params}`);
+      data = await faFetch(`/availability?${params}`);
       console.log(`[buscar_autos] Autos disponibles: ${data.length}`);
-      return JSON.stringify(data);
+    } else {
+      console.log(`[buscar_autos] Sin fechas — devolviendo catálogo completo`);
+      data = await faFetch('/cars');
+      console.log(`[buscar_autos] Total en catálogo: ${data.length}`);
     }
 
-    console.log(`[buscar_autos] Sin fechas — devolviendo catálogo completo`);
-    const data = await faFetch('/cars');
-    console.log(`[buscar_autos] Total en catálogo: ${data.length}`);
-    return JSON.stringify(data);
+    const images = data
+      .filter((car) => car.imageUrl)
+      .map((car) => ({ name: car.name, url: car.imageUrl, pricePerDay: car.pricePerDay }));
+
+    return { json: JSON.stringify(data), images };
   }
 
   throw new Error(`Herramienta desconocida: ${toolName}`);
@@ -83,6 +88,7 @@ app.post('/chat', async (req, res) => {
     // Agentic loop: sigue mientras Claude devuelva tool_use
     let currentMessages = [...messages];
     let finalText = '';
+    let lastSearchImages = [];
 
     while (true) {
       const today = new Date().toISOString().split('T')[0];
@@ -115,7 +121,9 @@ app.post('/chat', async (req, res) => {
 
           let toolContent;
           try {
-            toolContent = await executeTool(block.name, block.input);
+            const result = await executeTool(block.name, block.input);
+            toolContent = result.json;
+            lastSearchImages = result.images;
           } catch (err) {
             console.error(`Error ejecutando tool ${block.name}:`, err.message);
             toolContent = JSON.stringify({ error: err.message });
@@ -141,7 +149,7 @@ app.post('/chat', async (req, res) => {
       break;
     }
 
-    res.json({ response: finalText });
+    res.json({ response: finalText, images: lastSearchImages });
   } catch (err) {
     console.error('Error en /chat:', err.message);
     res.status(500).json({ error: 'Error interno del servidor.' });

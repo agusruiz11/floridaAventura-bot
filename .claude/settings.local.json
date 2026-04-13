@@ -4,7 +4,8 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); c=[x for x in d[''''casos''''] if x[''''id'''']==''''C7''''][0]; print\\(''''RESPUESTA:'''', c[''''respuesta'''']\\); print\\(\\); print\\(''''PASS found:'''', c[''''keywords_pass_encontradas'''']\\); print\\(''''FAIL found:'''', c[''''keywords_fail_encontradas'''']\\)\")",
       "Bash(node eval/run-eval.js)",
       "Bash(node -e \":*)",
-      "Bash(node eval/run-eval.js --casos D3,D4,D5,E1,E2,E3,E4,E5,F1,F2,F3,F4,G1,G2,G3,G4,G5,G6,H1,H2,H3,H4,H5,H6,H7,H8,I1,I2,I3,I4,I5,C8)"
+      "Bash(node eval/run-eval.js --casos D3,D4,D5,E1,E2,E3,E4,E5,F1,F2,F3,F4,G1,G2,G3,G4,G5,G6,H1,H2,H3,H4,H5,H6,H7,H8,I1,I2,I3,I4,I5,C8)",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\); const j=JSON.parse\\(d\\); j.casos.filter\\(c=>c.categoria==='C'||c.descripcion?.toLowerCase\\(\\).includes\\('precio'\\)||c.descripcion?.toLowerCase\\(\\).includes\\('total'\\)||c.descripcion?.toLowerCase\\(\\).includes\\('presupuesto'\\)\\).forEach\\(c=>console.log\\(c.id, c.descripcion\\)\\)\")"
     ]
   }
 }
