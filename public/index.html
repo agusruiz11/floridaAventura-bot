@@ -270,54 +270,78 @@
     }
 
     /* ── Car image cards ── */
-    .car-images {
+    /* ── Car listing cards (imagen + detalle unificados) ── */
+    .car-listing-cards {
       display: flex;
+      flex-direction: column;
       gap: 10px;
-      overflow-x: auto;
-      padding: 4px 2px 10px;
-      align-self: flex-start;
-      max-width: 92%;
-      scrollbar-width: none;
-    }
-
-    .car-images::-webkit-scrollbar { display: none; }
-
-    .car-card {
       flex-shrink: 0;
-      width: 148px;
-      border-radius: 12px;
-      overflow: hidden;
-      background: #fff;
-      box-shadow: 0 2px 10px rgba(0,0,0,.10);
     }
 
-    .car-card img {
+    .car-listing-card {
+      background: #fff;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,.09);
+    }
+
+    .car-listing-card img {
       width: 100%;
-      height: 96px;
+      height: 150px;
       object-fit: cover;
       display: block;
     }
 
-    .car-card-info {
-      padding: 7px 9px 8px;
+    .car-listing-card-body {
+      padding: 11px 14px 13px;
     }
 
-    .car-card-name {
-      font-size: 12px;
+    .car-listing-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 7px;
+    }
+
+    .car-listing-card-name {
+      font-size: 14.5px;
       font-weight: 700;
       color: var(--navy);
-      line-height: 1.3;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
+      line-height: 1.25;
     }
 
-    .car-card-price {
-      margin-top: 4px;
-      font-size: 11px;
-      font-weight: 600;
+    .car-listing-card-badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
       color: var(--teal);
+      border: 1.5px solid var(--teal);
+      border-radius: 4px;
+      padding: 2px 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .car-listing-card-specs {
+      font-size: 12.5px;
+      color: #555;
+      line-height: 1.55;
+      margin-bottom: 5px;
+    }
+
+    .car-listing-card-total {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--teal);
+      margin-bottom: 6px;
+    }
+
+    .car-listing-card-desc {
+      font-size: 12.5px;
+      color: #999;
+      font-style: italic;
     }
 
     /* ── Responsive: desktop centering ── */
@@ -396,56 +420,150 @@
     return new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
   }
 
-  function addBubble(role, text, images = []) {
+  // ── Car listing helpers ──────────────────────────────────────────────────
+
+  function stripMarkdown(text) {
+    return text.replace(/\*\*/g, '');
+  }
+
+  function cleanCarName(raw) {
+    // Agrega espacio antes del paréntesis de color: "Rogue(Negra)" → "Rogue (Negra)"
+    return raw.replace(/\(([^)]+)\)/g, ' ($1)').replace(/\s+/g, ' ').trim();
+  }
+
+  function parseCarParagraph(para, images) {
+    const lines = para.split('\n').map(l => l.trim()).filter(Boolean);
+    const headerMatch = lines[0]?.match(/^\*\*(MEDIUM|LARGE)\s+(.+?)\*\*$/);
+    if (!headerMatch) return null;
+
+    const type     = headerMatch[1];
+    const rawName  = headerMatch[2]; // ej: "Nissan Rogue(Negra) 2024"
+    const imgData  = images.find(img => rawName.includes(img.name)) || null;
+    const priceLine = lines.find(l => l.startsWith('💰')) || '';
+    const totalLine = lines.find(l => l.startsWith('💵')) || '';
+    const descLine  = lines.find(l => l.startsWith('→')) || '';
+
+    return {
+      type,
+      displayName: cleanCarName(rawName),
+      priceLine,
+      totalLine,
+      description: descLine.replace(/^→\s*/, ''),
+      imageUrl: imgData?.url || null,
+    };
+  }
+
+  function renderCarCard(car) {
+    const card = document.createElement('div');
+    card.className = 'car-listing-card';
+
+    if (car.imageUrl) {
+      const img = document.createElement('img');
+      img.src = car.imageUrl;
+      img.alt = car.displayName;
+      img.loading = 'eager';
+      card.appendChild(img);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'car-listing-card-body';
+
+    const header = document.createElement('div');
+    header.className = 'car-listing-card-header';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'car-listing-card-name';
+    nameEl.textContent = car.displayName;
+    const badge = document.createElement('span');
+    badge.className = 'car-listing-card-badge';
+    badge.textContent = car.type;
+    header.appendChild(nameEl);
+    header.appendChild(badge);
+    body.appendChild(header);
+
+    if (car.priceLine) {
+      const specs = document.createElement('div');
+      specs.className = 'car-listing-card-specs';
+      specs.textContent = car.priceLine;
+      body.appendChild(specs);
+    }
+
+    if (car.totalLine) {
+      const total = document.createElement('div');
+      total.className = 'car-listing-card-total';
+      total.textContent = car.totalLine;
+      body.appendChild(total);
+    }
+
+    if (car.description) {
+      const desc = document.createElement('div');
+      desc.className = 'car-listing-card-desc';
+      desc.textContent = car.description;
+      body.appendChild(desc);
+    }
+
+    card.appendChild(body);
+    return card;
+  }
+
+  function renderTextBubble(role, text, timestamp) {
     const msg = document.createElement('div');
     msg.className = `msg ${role}`;
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    bubble.textContent = text;
+    bubble.textContent = role === 'bot' ? stripMarkdown(text) : text;
 
     const time = document.createElement('div');
     time.className = 'msg-time';
-    time.textContent = now();
+    time.textContent = timestamp || now();
 
     msg.appendChild(bubble);
     msg.appendChild(time);
     messagesEl.appendChild(msg);
+  }
+
+  function addBubble(role, text, images = []) {
+    const timestamp = now();
 
     if (role === 'bot' && images.length > 0) {
-      const strip = document.createElement('div');
-      strip.className = 'car-images';
+      // Separar en: intro, bloques de autos, outro
+      const paragraphs = text.split(/\n\n+/);
+      const carRegex = /^\*\*(MEDIUM|LARGE)\s/;
+      const introParas = [], carParas = [], outroParas = [];
+      let inCars = false;
 
-      images.forEach(({ name, url, pricePerDay }) => {
-        const card = document.createElement('div');
-        card.className = 'car-card';
+      for (const para of paragraphs) {
+        if (carRegex.test(para.trim())) {
+          inCars = true;
+          carParas.push(para.trim());
+        } else if (!inCars) {
+          introParas.push(para.trim());
+        } else {
+          outroParas.push(para.trim());
+        }
+      }
 
-        const img = document.createElement('img');
-        img.src = url;
-        img.alt = name;
-        img.loading = 'lazy';
+      if (carParas.length > 0) {
+        const introText = introParas.filter(Boolean).join('\n\n');
+        if (introText) renderTextBubble('bot', introText, timestamp);
 
-        const info = document.createElement('div');
-        info.className = 'car-card-info';
+        const container = document.createElement('div');
+        container.className = 'car-listing-cards';
+        carParas.forEach(para => {
+          const car = parseCarParagraph(para, images);
+          if (car) container.appendChild(renderCarCard(car));
+        });
+        messagesEl.appendChild(container);
 
-        const nameEl = document.createElement('div');
-        nameEl.className = 'car-card-name';
-        nameEl.textContent = name;
+        const outroText = outroParas.filter(Boolean).join('\n\n');
+        if (outroText) renderTextBubble('bot', outroText, timestamp);
 
-        const priceEl = document.createElement('div');
-        priceEl.className = 'car-card-price';
-        priceEl.textContent = `USD ${pricePerDay}/día`;
-
-        info.appendChild(nameEl);
-        info.appendChild(priceEl);
-        card.appendChild(img);
-        card.appendChild(info);
-        strip.appendChild(card);
-      });
-
-      messagesEl.appendChild(strip);
+        requestAnimationFrame(scrollToBottom);
+        return;
+      }
     }
 
+    renderTextBubble(role, text, timestamp);
     scrollToBottom();
   }
 
