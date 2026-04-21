@@ -431,6 +431,10 @@
     return raw.replace(/\(([^)]+)\)/g, ' ($1)').replace(/\s+/g, ' ').trim();
   }
 
+  function normalizeCarName(s) {
+    return s.replace(/\s*\(([^)]+)\)\s*/g, '($1)').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
   function parseCarParagraph(para, images) {
     const lines = para.split('\n').map(l => l.trim()).filter(Boolean);
     const headerMatch = lines[0]?.match(/^\*\*(SMALL|MEDIUM|LARGE)\s+(.+?)\*\*$/);
@@ -439,7 +443,8 @@
     const type     = headerMatch[1];
     const rawName  = headerMatch[2]; // ej: "Nissan Rogue(Negra) 2024"
     const nameWithoutYear = rawName.replace(/\s+\d{4}$/, '').trim();
-    const imgData  = images.find(img => img.name && img.name === nameWithoutYear) || null;
+    const nameNorm = normalizeCarName(nameWithoutYear);
+    const imgData  = images.find(img => img.name && normalizeCarName(img.name) === nameNorm) || null;
     const priceLine = lines.find(l => l.startsWith('💰')) || '';
     const totalLine = lines.find(l => l.startsWith('💵')) || '';
     const descLine  = lines.find(l => l.startsWith('→')) || '';
@@ -528,7 +533,9 @@
 
     if (role === 'bot' && images.length > 0) {
       // Separar en: intro, bloques de autos, outro
-      const paragraphs = text.split(/\n\n+/);
+      // Asegurar que cada bloque de auto empiece como párrafo propio aunque no haya línea en blanco previa
+      const normalizedText = text.replace(/([^\n])\n(\*\*(SMALL|MEDIUM|LARGE)\s)/g, '$1\n\n$2');
+      const paragraphs = normalizedText.split(/\n\n+/);
       const carRegex = /^\*\*(SMALL|MEDIUM|LARGE)\s/;
       const introParas = [], carParas = [], outroParas = [];
       let inCars = false;
