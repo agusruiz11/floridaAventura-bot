@@ -433,12 +433,13 @@
 
   function parseCarParagraph(para, images) {
     const lines = para.split('\n').map(l => l.trim()).filter(Boolean);
-    const headerMatch = lines[0]?.match(/^\*\*(MEDIUM|LARGE)\s+(.+?)\*\*$/);
+    const headerMatch = lines[0]?.match(/^\*\*(SMALL|MEDIUM|LARGE)\s+(.+?)\*\*$/);
     if (!headerMatch) return null;
 
     const type     = headerMatch[1];
     const rawName  = headerMatch[2]; // ej: "Nissan Rogue(Negra) 2024"
-    const imgData  = images.find(img => rawName.includes(img.name)) || null;
+    const nameWithoutYear = rawName.replace(/\s+\d{4}$/, '').trim();
+    const imgData  = images.find(img => img.name && img.name === nameWithoutYear) || null;
     const priceLine = lines.find(l => l.startsWith('💰')) || '';
     const totalLine = lines.find(l => l.startsWith('💵')) || '';
     const descLine  = lines.find(l => l.startsWith('→')) || '';
@@ -528,7 +529,7 @@
     if (role === 'bot' && images.length > 0) {
       // Separar en: intro, bloques de autos, outro
       const paragraphs = text.split(/\n\n+/);
-      const carRegex = /^\*\*(MEDIUM|LARGE)\s/;
+      const carRegex = /^\*\*(SMALL|MEDIUM|LARGE)\s/;
       const introParas = [], carParas = [], outroParas = [];
       let inCars = false;
 
