@@ -69,6 +69,10 @@ async function executeTool(toolName, toolInput) {
       .filter((car) => car.imageUrl)
       .map((car) => ({ name: car.name, url: car.imageUrl, pricePerDay: car.pricePerDay }));
 
+    const sinImagen = data.filter((c) => !c.imageUrl).map((c) => c.name);
+    console.log(`[buscar_autos] Con imagen: ${images.map((i) => i.name).join(', ')}`);
+    if (sinImagen.length) console.log(`[buscar_autos] SIN imagen: ${sinImagen.join(', ')}`);
+
     return { json: JSON.stringify(data), images };
   }
 

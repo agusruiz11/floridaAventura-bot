@@ -432,7 +432,12 @@
   }
 
   function normalizeCarName(s) {
-    return s.replace(/\s*\(([^)]+)\)\s*/g, '($1)').replace(/\s+/g, ' ').trim().toLowerCase();
+    return s
+      .replace(/\s*\(([^)]+)\)\s*/g, '($1)')
+      .replace(/[-–—]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
   }
 
   function parseCarParagraph(para, images) {
@@ -442,7 +447,7 @@
 
     const type     = headerMatch[1];
     const rawName  = headerMatch[2]; // ej: "Nissan Rogue(Negra) 2024"
-    const nameWithoutYear = rawName.replace(/\s+\d{4}$/, '').trim();
+    const nameWithoutYear = rawName.replace(/\s*\(\d{4}\)\s*$/, '').replace(/\s+\d{4}$/, '').trim();
     const nameNorm = normalizeCarName(nameWithoutYear);
     const imgData  = images.find(img => img.name && normalizeCarName(img.name) === nameNorm) || null;
     const priceLine = lines.find(l => l.startsWith('💰')) || '';
