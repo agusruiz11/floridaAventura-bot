@@ -49,9 +49,28 @@ async function faFetch(path) {
   return res.json();
 }
 
+function isValidISODate(str) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(str) && !isNaN(Date.parse(str));
+}
+
+function extractQuickReplies(text) {
+  const match = text.match(/\[QUICK_REPLIES:\s*([^\]]+)\]/);
+  if (!match) return { cleanText: text, quickReplies: [] };
+  const quickReplies = match[1].split('|').map(s => s.trim()).filter(Boolean);
+  const cleanText = text.replace(/\[QUICK_REPLIES:[^\]]+\]\n?/, '').trim();
+  return { cleanText, quickReplies };
+}
+
 async function executeTool(toolName, toolInput) {
   if (toolName === 'buscar_autos') {
     const { startDateTime, endDateTime } = toolInput;
+
+    if (startDateTime && !isValidISODate(startDateTime)) {
+      return { json: JSON.stringify({ error: 'startDateTime inválido. Pedile al cliente que confirme las fechas exactas.' }), images: [] };
+    }
+    if (endDateTime && !isValidISODate(endDateTime)) {
+      return { json: JSON.stringify({ error: 'endDateTime inválido. Pedile al cliente que confirme las fechas exactas.' }), images: [] };
+    }
 
     let data;
     if (startDateTime && endDateTime) {
@@ -73,7 +92,8 @@ async function executeTool(toolName, toolInput) {
     console.log(`[buscar_autos] Con imagen: ${images.map((i) => i.name).join(', ')}`);
     if (sinImagen.length) console.log(`[buscar_autos] SIN imagen: ${sinImagen.join(', ')}`);
 
-    return { json: JSON.stringify(data), images };
+    const unique = [...new Map(data.map((d) => [d.name, d])).values()];
+    return { json: JSON.stringify(unique), images };
   }
 
   throw new Error(`Herramienta desconocida: ${toolName}`);
@@ -94,7 +114,21 @@ app.post('/chat', async (req, res) => {
     let finalText = '';
     let lastSearchImages = [];
 
+    const timeoutId = setTimeout(() => {
+      if (!res.headersSent) {
+        res.json({ response: 'La consulta tardó demasiado. Por favor intentá de nuevo o escribile a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] });
+      }
+    }, 45000);
+
+    const MAX_ITERATIONS = 15;
+    let iterations = 0;
+
     while (true) {
+      if (++iterations > MAX_ITERATIONS) {
+        clearTimeout(timeoutId);
+        console.error('[/chat] Máximo de iteraciones alcanzado');
+        return res.json({ response: 'Tuve un problema procesando tu consulta. Escribile directamente a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] });
+      }
       const today = new Date().toISOString().split('T')[0];
       const response = await client.messages.create({
         model: 'claude-sonnet-4-5',
@@ -153,8 +187,12 @@ app.post('/chat', async (req, res) => {
       break;
     }
 
-    console.log(`[/chat] Respondiendo con ${lastSearchImages.length} imágenes`);
-    res.json({ response: finalText, images: lastSearchImages });
+    clearTimeout(timeoutId);
+    if (res.headersSent) return;
+
+    const { cleanText, quickReplies } = extractQuickReplies(finalText);
+    console.log(`[/chat] Respondiendo con ${lastSearchImages.length} imágenes, ${quickReplies.length} quick replies`);
+    res.json({ response: cleanText, images: lastSearchImages, quickReplies });
   } catch (err) {
     console.error('Error en /chat:', err.message);
     res.status(500).json({ error: 'Error interno del servidor.' });
