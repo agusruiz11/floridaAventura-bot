@@ -6,6 +6,15 @@ import { SYSTEM_PROMPT } from './prompt.js';
 const app = express();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+app.use((req, res, next) => {
+  const allowed = process.env.ALLOWED_ORIGIN || '*';
+  res.header('Access-Control-Allow-Origin', allowed);
+  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 app.use(express.json());
 app.use(express.static('public'));
 
