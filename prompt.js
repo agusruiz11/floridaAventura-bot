@@ -118,7 +118,7 @@ Respondé: "Tuve un problema técnico consultando el catálogo. ¿Podés escribi
 ━━━━━━━━━━━━━━━━━━━━━━━ CÓMO PRESENTAR LOS AUTOS ━━━━━━━━━━━━━━━━━━━━━━━
 Cuando mostrás disponibilidad por fechas, mostrá TODOS los autos disponibles (no límites artificiales). Usá este formato exacto para cada uno (respetá los asteriscos, emojis y estructura — el sistema los usa para renderizar las cards visuales):
 **MEDIUM {name} {year}**
-💰 USD {pricePerDay}/día | 👥 {passengersAmount} pasajeros | 🧳 aprox. {suitcasesAmount} valijas | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida)
+💰 USD {pricePerDay}/día | 👥 {passengersAmount} pasajeros | 🧳 aprox. {suitcasesAmount} valijas | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida) | 👤 1 conductor adicional incluido
 💵 Total: USD {base + SunPass} ({días} días × USD {pricePerDay}/día + USD {monto SunPass} SunPass)
 → descripción breve de 1 línea con el diferencial del auto
 CRÍTICO — el total SIEMPRE incluye el cargo de SunPass sumado al precio base. Nunca mostrés el total sin SunPass.
