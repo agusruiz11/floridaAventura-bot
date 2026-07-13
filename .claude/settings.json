@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//media/elmapache/Western Digital HDD/Mis Archivos/Documentos/1. work/1. Posicionarte/CLIENTES/FloridaAventura/rentACar-frontend/api/**)",
+      "Bash(grep -nEi 'fetch|axios|http|localhost|railway|/chat|api|VITE|import.meta.env|process.env' __TRACKED_VAR__/src/components/layout/ChatFloat.jsx)",
+      "Bash(FE=\"/media/elmapache/Western Digital HDD/Mis Archivos/Documentos/1. work/1. Posicionarte/CLIENTES/FloridaAventura/rentACar-frontend\"; echo \"=== VITE_CHAT_API_URL en .env del frontend \\(a dónde apunta prod\\) ===\"; grep -rniE \"VITE_CHAT_API_URL|railway|floridaaventura-bot\" \"$FE\"/.env* \"$FE\"/vercel.json 2>/dev/null | sed -E 's/=\\(.*\\)/= \\\\1/'; echo \"\"; echo \"=== cómo ChatFloat.jsx maneja la línea 📅 / fecha ===\"; grep -nF \"📅\" \"$FE/src/components/layout/ChatFloat.jsx\"; echo \"--- contexto parsing \\(Del / date / dateLine / startsWith\\) ---\"; grep -niE \"startsWith|dateLine|date|Del |💰|💵|→|carCard|renderCar|parseCar\" \"$FE/src/components/layout/ChatFloat.jsx\" | head -30)",
+      "Read(//media/elmapache/Western Digital HDD/Mis Archivos/Documentos/1. work/1. Posicionarte/CLIENTES/FloridaAventura/rentACar-frontend/**)",
+      "Bash(node --check server.js)",
+      "Bash(node --check prompt.js)",
+      "Bash(node -e \"import\\('./prompt.js'\\).then\\(m=>console.log\\('prompt import OK, len:', m.SYSTEM_PROMPT.length\\)\\)\")",
+      "Bash(node -e ' *)"
+    ]
+  }
+}

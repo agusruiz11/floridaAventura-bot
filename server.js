@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from './prompt.js';
 
@@ -15,7 +16,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+// Guardamos el body crudo para validar la firma de los webhooks de Meta
+app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(express.static('public'));
 
 // ─── Tool definitions ────────────────────────────────────────────────────────
@@ -108,7 +110,112 @@ async function executeTool(toolName, toolInput) {
   throw new Error(`Herramienta desconocida: ${toolName}`);
 }
 
-// ─── Chat endpoint ────────────────────────────────────────────────────────────
+// ─── Horario / zona horaria (solo Instagram) ─────────────────────────────────
+
+const IG_TZ = process.env.IG_TZ || 'America/New_York';
+
+// Fecha de hoy (YYYY-MM-DD) en la zona horaria de Florida
+function floridaDateStr() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: IG_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
+// Hora actual (0-23) en la zona horaria de Florida
+function floridaHour() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: IG_TZ, hour: 'numeric', hour12: false,
+  }).formatToParts(new Date());
+  return Number(parts.find((p) => p.type === 'hour')?.value ?? '0') % 24;
+}
+
+// ¿El bot de Instagram tiene que contestar en este momento?
+// Por defecto activo de 23:00 a 07:00 (franja que cruza la medianoche).
+function isBotActiveNow() {
+  if ((process.env.IG_ENABLED || 'true') === 'false') return false;
+  const start = Number(process.env.IG_BOT_START_HOUR ?? 23);
+  const end = Number(process.env.IG_BOT_END_HOUR ?? 7);
+  const h = floridaHour();
+  return start < end ? (h >= start && h < end) : (h >= start || h < end);
+}
+
+// Instrucción extra que se le agrega al prompt SOLO en el canal Instagram (horario nocturno)
+const INSTAGRAM_NIGHT_SUFFIX = `
+━━━━━━━━━━━━━━━━━━━━━━━ CANAL INSTAGRAM — HORARIO NOCTURNO ━━━━━━━━━━━━━━━━━━━━━━━
+Estás atendiendo por Instagram fuera del horario comercial: la empresa está cerrada y Patricia atiende personalmente durante el día.
+En tu PRIMER mensaje de esta conversación —y SOLO en el primero— incluí al inicio, tal cual, esta nota:
+"En este momento estamos cerrados, pero en mi rol de Asistente Comercial puedo contestar tus dudas y cotizar el alquiler de tu auto. De todas formas quedate tranquilo que mañana durante la mañana te podés contactar directamente con Patricia."
+Después de esa nota seguí normalmente con tu presentación y el flujo habitual. No vuelvas a repetir la nota en los mensajes siguientes de la conversación.`;
+
+// ─── Núcleo del bot (compartido entre la web y Instagram) ────────────────────
+
+const FALLBACK_MSG = 'Tuve un problema procesando tu consulta. Escribile directamente a Patricia: https://wa.me/13057731787';
+
+async function runBot(messages, { channel = 'web' } = {}) {
+  let currentMessages = [...messages];
+  let finalText = '';
+  let lastSearchImages = [];
+
+  const today = floridaDateStr();
+  let system = `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.\n\n${SYSTEM_PROMPT}`;
+  if (channel === 'instagram') system += `\n\n${INSTAGRAM_NIGHT_SUFFIX}`;
+
+  const MAX_ITERATIONS = 15;
+  let iterations = 0;
+
+  while (true) {
+    if (++iterations > MAX_ITERATIONS) {
+      console.error(`[bot:${channel}] Máximo de iteraciones alcanzado`);
+      return { text: FALLBACK_MSG, images: [], quickReplies: [] };
+    }
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 2048,
+      system,
+      tools: TOOLS,
+      messages: currentMessages,
+    });
+
+    if (response.stop_reason === 'end_turn') {
+      finalText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+      break;
+    }
+
+    if (response.stop_reason === 'tool_use') {
+      currentMessages.push({ role: 'assistant', content: response.content });
+
+      const toolResults = [];
+      for (const block of response.content) {
+        if (block.type !== 'tool_use') continue;
+
+        let toolContent;
+        try {
+          const result = await executeTool(block.name, block.input);
+          toolContent = result.json;
+          lastSearchImages = result.images;
+        } catch (err) {
+          console.error(`Error ejecutando tool ${block.name}:`, err.message);
+          toolContent = JSON.stringify({ error: err.message });
+        }
+
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: toolContent });
+      }
+
+      currentMessages.push({ role: 'user', content: toolResults });
+      continue;
+    }
+
+    // stop_reason inesperado — salir con lo que haya
+    finalText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    break;
+  }
+
+  const { cleanText, quickReplies } = extractQuickReplies(finalText);
+  return { text: cleanText, images: lastSearchImages, quickReplies };
+}
+
+// ─── Chat endpoint (widget web) ──────────────────────────────────────────────
 
 app.post('/chat', async (req, res) => {
   const { messages } = req.body;
@@ -117,94 +224,189 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ error: 'Se requiere el campo "messages" (array).' });
   }
 
-  try {
-    // Agentic loop: sigue mientras Claude devuelva tool_use
-    let currentMessages = [...messages];
-    let finalText = '';
-    let lastSearchImages = [];
-
-    const timeoutId = setTimeout(() => {
-      if (!res.headersSent) {
-        res.json({ response: 'La consulta tardó demasiado. Por favor intentá de nuevo o escribile a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] });
-      }
-    }, 45000);
-
-    const MAX_ITERATIONS = 15;
-    let iterations = 0;
-
-    while (true) {
-      if (++iterations > MAX_ITERATIONS) {
-        clearTimeout(timeoutId);
-        console.error('[/chat] Máximo de iteraciones alcanzado');
-        return res.json({ response: 'Tuve un problema procesando tu consulta. Escribile directamente a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] });
-      }
-      const today = new Date().toISOString().split('T')[0];
-      const response = await client.messages.create({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 2048,
-        system: `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.\n\n${SYSTEM_PROMPT}`,
-        tools: TOOLS,
-        messages: currentMessages,
-      });
-
-      // Si Claude terminó normalmente sin usar tools
-      if (response.stop_reason === 'end_turn') {
-        finalText = response.content
-          .filter((b) => b.type === 'text')
-          .map((b) => b.text)
-          .join('');
-        break;
-      }
-
-      // Si Claude quiere usar una o más herramientas
-      if (response.stop_reason === 'tool_use') {
-        // Agregar la respuesta de Claude (con tool_use blocks) al historial
-        currentMessages.push({ role: 'assistant', content: response.content });
-
-        // Ejecutar cada tool y construir los tool_result
-        const toolResults = [];
-        for (const block of response.content) {
-          if (block.type !== 'tool_use') continue;
-
-          let toolContent;
-          try {
-            const result = await executeTool(block.name, block.input);
-            toolContent = result.json;
-            lastSearchImages = result.images;
-          } catch (err) {
-            console.error(`Error ejecutando tool ${block.name}:`, err.message);
-            toolContent = JSON.stringify({ error: err.message });
-          }
-
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: block.id,
-            content: toolContent,
-          });
-        }
-
-        // Agregar resultados al historial y seguir el loop
-        currentMessages.push({ role: 'user', content: toolResults });
-        continue;
-      }
-
-      // stop_reason inesperado — salir del loop con lo que haya
-      finalText = response.content
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text)
-        .join('');
-      break;
+  const timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      res.json({ response: 'La consulta tardó demasiado. Por favor intentá de nuevo o escribile a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] });
     }
+  }, 45000);
 
+  try {
+    const { text, images, quickReplies } = await runBot(messages, { channel: 'web' });
     clearTimeout(timeoutId);
     if (res.headersSent) return;
-
-    const { cleanText, quickReplies } = extractQuickReplies(finalText);
-    console.log(`[/chat] Respondiendo con ${lastSearchImages.length} imágenes, ${quickReplies.length} quick replies`);
-    res.json({ response: cleanText, images: lastSearchImages, quickReplies });
+    console.log(`[/chat] Respondiendo con ${images.length} imágenes, ${quickReplies.length} quick replies`);
+    res.json({ response: text, images, quickReplies });
   } catch (err) {
+    clearTimeout(timeoutId);
     console.error('Error en /chat:', err.message);
-    res.status(500).json({ error: 'Error interno del servidor.' });
+    if (!res.headersSent) res.status(500).json({ error: 'Error interno del servidor.' });
+  }
+});
+
+// ─── Instagram: memoria de conversaciones (por usuario) ──────────────────────
+// En memoria: simple y suficiente para el turno nocturno. Se reinicia si Railway
+// redeploya o reinicia el proceso. Migrar a una DB si se necesita persistencia real.
+
+const igSessions = new Map(); // senderId -> { messages: [...], updatedAt }
+const SESSION_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas de inactividad
+const seenMids = new Set();   // dedupe de reintentos de Meta
+
+function getIgSession(senderId) {
+  const now = Date.now();
+  let s = igSessions.get(senderId);
+  if (!s || now - s.updatedAt > SESSION_TTL_MS) {
+    s = { messages: [], updatedAt: now };
+    igSessions.set(senderId, s);
+  }
+  return s;
+}
+
+// Instagram DM es texto plano: no renderiza markdown ni cards. Convertimos el
+// formato del bot a algo legible en un DM (sin **, sin _, encabezado más humano).
+function formatForInstagram(text) {
+  return text
+    .replace(/\*\*(SMALL|MEDIUM|LARGE)\s+(.+?)\*\*/g, (_m, size, name) => {
+      const sz = { SMALL: 'Chico', MEDIUM: 'Mediano', LARGE: 'Grande' }[size] || '';
+      const cleanName = name.replace(/\(([^)]+)\)/g, ' ($1)').replace(/\s+/g, ' ').trim();
+      return `🚗 ${cleanName}${sz ? ` — ${sz}` : ''}`;
+    })
+    .replace(/\*\*/g, '')
+    .replace(/_/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Instagram corta los mensajes ~1000 caracteres: partimos en trozos por líneas.
+function chunkText(text, max = 950) {
+  const chunks = [];
+  let cur = '';
+  for (const line of text.split('\n')) {
+    if (cur && (cur + '\n' + line).length > max) {
+      chunks.push(cur);
+      cur = line;
+    } else {
+      cur = cur ? cur + '\n' + line : line;
+    }
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
+async function igSend(recipientId, message) {
+  const base = process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0';
+  const token = process.env.IG_ACCESS_TOKEN;
+  if (!token) { console.error('[ig] Falta IG_ACCESS_TOKEN — no puedo responder'); return; }
+
+  const res = await fetch(`${base}/me/messages?access_token=${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipient: { id: recipientId }, message }),
+  });
+  if (!res.ok) {
+    console.error('[ig] Error enviando mensaje:', res.status, await res.text());
+  }
+}
+
+async function handleIgMessage(senderId, text) {
+  const session = getIgSession(senderId);
+  session.messages.push({ role: 'user', content: text });
+  if (session.messages.length > 40) session.messages = session.messages.slice(-40);
+
+  let result;
+  try {
+    result = await runBot(session.messages, { channel: 'instagram' });
+  } catch (err) {
+    console.error('[ig] runBot error:', err.message);
+    result = { text: 'Disculpá, tuve un inconveniente. Escribile a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] };
+  }
+
+  session.messages.push({ role: 'assistant', content: result.text });
+  session.updatedAt = Date.now();
+
+  // 1) Texto (formateado para DM y partido en trozos)
+  const outText = formatForInstagram(result.text);
+  for (const chunk of chunkText(outText)) {
+    await igSend(senderId, { text: chunk });
+  }
+
+  // 2) Fotos de los autos (como adjuntos separados)
+  if ((process.env.IG_SEND_IMAGES || 'true') !== 'false') {
+    for (const img of (result.images || []).slice(0, 5)) {
+      try {
+        await igSend(senderId, { attachment: { type: 'image', payload: { url: img.url, is_reusable: false } } });
+      } catch (err) {
+        console.error('[ig] Error enviando imagen:', err.message);
+      }
+    }
+  }
+}
+
+// Valida que el webhook venga realmente de Meta (firma HMAC con el App Secret)
+function verifySignature(req) {
+  const secret = process.env.IG_APP_SECRET;
+  if (!secret) return true; // si no está configurado, no bloqueamos (útil para probar)
+  const sig = req.get('x-hub-signature-256');
+  if (!sig || !req.rawBody) return false;
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(req.rawBody).digest('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
+// ─── Webhook de Instagram ────────────────────────────────────────────────────
+
+// Verificación inicial que hace Meta al configurar el webhook (handshake)
+app.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === process.env.IG_VERIFY_TOKEN) {
+    console.log('[webhook] Verificación OK');
+    return res.status(200).send(challenge);
+  }
+  console.warn('[webhook] Verificación fallida');
+  return res.sendStatus(403);
+});
+
+// Recepción de mensajes de Instagram
+app.post('/webhook', (req, res) => {
+  res.sendStatus(200); // respondemos rápido para que Meta no reintente
+
+  try {
+    if (!verifySignature(req)) { console.warn('[webhook] Firma inválida — descartado'); return; }
+
+    const body = req.body;
+    if (!body || body.object !== 'instagram') return;
+
+    for (const entry of body.entry || []) {
+      for (const event of entry.messaging || []) {
+        const senderId = event.sender?.id;
+        const msg = event.message;
+
+        if (!senderId || !msg) continue;
+        if (msg.is_echo) continue;          // ignorar los mensajes que enviamos nosotros
+        if (!msg.text) continue;            // por ahora solo texto (no stickers/adjuntos)
+
+        // dedupe de reintentos
+        if (msg.mid) {
+          if (seenMids.has(msg.mid)) continue;
+          seenMids.add(msg.mid);
+          if (seenMids.size > 1000) seenMids.clear();
+        }
+
+        // Fuera del horario del bot → no contestamos, atiende Patricia
+        if (!isBotActiveNow()) {
+          console.log(`[webhook] Fuera de horario del bot (hora Florida: ${floridaHour()}) — atiende Patricia`);
+          continue;
+        }
+
+        handleIgMessage(senderId, msg.text).catch((err) => console.error('[ig] handle error:', err.message));
+      }
+    }
+  } catch (err) {
+    console.error('[webhook] Error:', err.message);
   }
 });
 
@@ -213,4 +415,5 @@ app.post('/chat', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Florida Aventura Bot corriendo en http://localhost:${PORT}`);
+  console.log(`[ig] Canal Instagram: ${(process.env.IG_ENABLED || 'true') === 'false' ? 'APAGADO' : `activo ${process.env.IG_BOT_START_HOUR ?? 23}:00–${process.env.IG_BOT_END_HOUR ?? 7}:00 (${IG_TZ})`}`);
 });
