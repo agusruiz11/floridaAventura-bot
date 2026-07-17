@@ -139,13 +139,14 @@ function isBotActiveNow() {
   return start < end ? (h >= start && h < end) : (h >= start || h < end);
 }
 
-// Instrucción extra que se le agrega al prompt SOLO en el canal Instagram (horario nocturno)
+// Nota fija que se antepone al PRIMER mensaje del bot en cada conversación de Instagram.
+// Se agrega por código en handleIgMessage (garantizado, no depende de que la IA la incluya).
+const IG_CLOSED_NOTE = 'En este momento estamos cerrados, pero en mi rol de Asistente Comercial puedo contestar tus dudas y cotizar el alquiler de tu auto. De todas formas quedate tranquilo que mañana durante la mañana te podés contactar directamente con Patricia.';
+
+// Contexto extra que se le agrega al prompt SOLO en el canal Instagram (horario nocturno)
 const INSTAGRAM_NIGHT_SUFFIX = `
 ━━━━━━━━━━━━━━━━━━━━━━━ CANAL INSTAGRAM — HORARIO NOCTURNO ━━━━━━━━━━━━━━━━━━━━━━━
-Estás atendiendo por Instagram fuera del horario comercial: la empresa está cerrada y Patricia atiende personalmente durante el día.
-En tu PRIMER mensaje de esta conversación —y SOLO en el primero— incluí al inicio, tal cual, esta nota:
-"En este momento estamos cerrados, pero en mi rol de Asistente Comercial puedo contestar tus dudas y cotizar el alquiler de tu auto. De todas formas quedate tranquilo que mañana durante la mañana te podés contactar directamente con Patricia."
-Después de esa nota seguí normalmente con tu presentación y el flujo habitual. No vuelvas a repetir la nota en los mensajes siguientes de la conversación.`;
+Estás atendiendo por Instagram fuera del horario comercial: la empresa está cerrada y Patricia atiende personalmente durante el día. Podés responder consultas y cotizar con normalidad. Si el cliente necesita hablar con una persona, aclarale con calidez que Patricia lo va a contactar durante la mañana.`;
 
 // ─── Núcleo del bot (compartido entre la web y Instagram) ────────────────────
 
@@ -309,9 +310,46 @@ async function igSend(recipientId, message) {
   }
 }
 
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// Normaliza el nombre de un auto para poder matchear el texto con su imagen
+function normalizeCarName(s) {
+  return s
+    .replace(/\s*\(\d{4}\)\s*$/, '')
+    .replace(/\s+\d{4}\s*$/, '')
+    .replace(/\s*\(([^)]+)\)\s*/g, '($1)')
+    .replace(/[-–—]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// Separa la respuesta del bot en: intro + un bloque por auto + cierre (disclaimer)
+function splitIntoSegments(text) {
+  const normalized = text.replace(/([^\n])\n(\*\*(SMALL|MEDIUM|LARGE)\s)/g, '$1\n\n$2');
+  const paras = normalized.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+  const carRegex = /^\*\*(SMALL|MEDIUM|LARGE)\s+(.+?)\*\*/;
+  const intro = [], cars = [], outro = [];
+  let inCars = false;
+  for (const para of paras) {
+    const m = para.match(carRegex);
+    if (m) { inCars = true; cars.push({ text: para, name: m[2] }); }
+    else if (!inCars) intro.push(para);
+    else outro.push(para);
+  }
+  return { intro: intro.join('\n\n'), cars, outro: outro.join('\n\n') };
+}
+
+function findImageFor(carName, images) {
+  const target = normalizeCarName(carName);
+  return images.find((img) => img.name && normalizeCarName(img.name) === target) || null;
+}
+
 async function handleIgMessage(senderId, text) {
   console.log(`[ig] Procesando mensaje de ${senderId}: "${text}"`);
   const session = getIgSession(senderId);
+  // ¿Es la primera respuesta del bot en esta conversación? (para anteponer la nota de cierre)
+  const isFirstReply = !session.messages.some((m) => m.role === 'assistant');
   session.messages.push({ role: 'user', content: text });
   if (session.messages.length > 40) session.messages = session.messages.slice(-40);
 
@@ -326,21 +364,40 @@ async function handleIgMessage(senderId, text) {
   session.messages.push({ role: 'assistant', content: result.text });
   session.updatedAt = Date.now();
 
-  // 1) Texto (formateado para DM y partido en trozos)
-  const outText = formatForInstagram(result.text);
-  for (const chunk of chunkText(outText)) {
-    await igSend(senderId, { text: chunk });
-  }
+  // Enviamos intercalando: el texto de cada auto y su foto justo debajo, en vez de
+  // mandar todo el texto primero y todas las fotos juntas al final.
+  const images = result.images || [];
+  const sendImages = (process.env.IG_SEND_IMAGES || 'true') !== 'false';
+  const { intro, cars, outro } = splitIntoSegments(result.text);
 
-  // 2) Fotos de los autos (como adjuntos separados)
-  if ((process.env.IG_SEND_IMAGES || 'true') !== 'false') {
-    for (const img of (result.images || []).slice(0, 5)) {
-      try {
-        await igSend(senderId, { attachment: { type: 'image', payload: { url: img.url, is_reusable: false } } });
-      } catch (err) {
-        console.error('[ig] Error enviando imagen:', err.message);
+  // Caso simple (sin autos o sin fotos): todo el texto y, si hay, las fotos al final
+  if (cars.length === 0 || images.length === 0 || !sendImages) {
+    const full = isFirstReply ? `${IG_CLOSED_NOTE}\n\n${result.text}` : result.text;
+    for (const chunk of chunkText(formatForInstagram(full))) { await igSend(senderId, { text: chunk }); await sleep(250); }
+    if (sendImages) {
+      for (const img of images.slice(0, 6)) {
+        try { await igSend(senderId, { attachment: { type: 'image', payload: { url: img.url, is_reusable: false } } }); await sleep(250); }
+        catch (err) { console.error('[ig] Error enviando imagen:', err.message); }
       }
     }
+    return;
+  }
+
+  // Caso con autos + fotos: intro → (texto del auto + su foto) por cada auto → cierre/disclaimer
+  const introFull = isFirstReply ? `${IG_CLOSED_NOTE}${intro ? `\n\n${intro}` : ''}` : intro;
+  if (introFull.trim()) {
+    for (const chunk of chunkText(formatForInstagram(introFull))) { await igSend(senderId, { text: chunk }); await sleep(250); }
+  }
+  for (const car of cars) {
+    for (const chunk of chunkText(formatForInstagram(car.text))) { await igSend(senderId, { text: chunk }); await sleep(250); }
+    const img = findImageFor(car.name, images);
+    if (img) {
+      try { await igSend(senderId, { attachment: { type: 'image', payload: { url: img.url, is_reusable: false } } }); await sleep(300); }
+      catch (err) { console.error('[ig] Error enviando imagen:', err.message); }
+    }
+  }
+  if (outro.trim()) {
+    for (const chunk of chunkText(formatForInstagram(outro))) { await igSend(senderId, { text: chunk }); await sleep(250); }
   }
 }
 
