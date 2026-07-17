@@ -377,7 +377,7 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', (req, res) => {
   res.sendStatus(200); // respondemos rápido para que Meta no reintente
 
-  console.log(`[webhook] POST recibido — object: ${req.body?.object} | entries: ${req.body?.entry?.length ?? 0}`);
+  console.log('[webhook] POST recibido — RAW:', JSON.stringify(req.body));
 
   try {
     if (!verifySignature(req)) { console.warn('[webhook] Firma inválida — descartado'); return; }
@@ -389,9 +389,17 @@ app.post('/webhook', (req, res) => {
     }
 
     for (const entry of body.entry || []) {
-      for (const event of entry.messaging || []) {
-        const senderId = event.sender?.id;
-        const msg = event.message;
+      // Instagram manda los mensajes en 2 formatos posibles:
+      //  - entry.messaging[]      → DMs reales (producto Webhooks / messaging)
+      //  - entry.changes[].value  → Casos de uso / botón de prueba del dashboard
+      const events = [
+        ...(entry.messaging || []),
+        ...(entry.changes || []).filter((c) => c.field === 'messages').map((c) => c.value),
+      ];
+
+      for (const event of events) {
+        const senderId = event?.sender?.id;
+        const msg = event?.message;
         console.log(`[webhook] evento de ${senderId} — texto: "${msg?.text ?? '(sin texto)'}" — echo: ${!!msg?.is_echo}`);
 
         if (!senderId || !msg) continue;
