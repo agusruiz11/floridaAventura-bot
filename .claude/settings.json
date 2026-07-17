@@ -8,7 +8,10 @@
       "Bash(node --check server.js)",
       "Bash(node --check prompt.js)",
       "Bash(node -e \"import\\('./prompt.js'\\).then\\(m=>console.log\\('prompt import OK, len:', m.SYSTEM_PROMPT.length\\)\\)\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(curl -s -o /dev/null -w \"GET /webhook -> HTTP %{http_code}\\\\n\" \"https://floridaaventura-bot-production.up.railway.app/webhook?hub.mode=subscribe&hub.verify_token=test&hub.challenge=hello\")",
+      "Bash(curl -s -o /dev/null -w \"GET / -> HTTP %{http_code}\\\\n\" \"https://floridaaventura-bot-production.up.railway.app/\")",
+      "Bash(curl -s -o /dev/null -w \"GET /webhook -> HTTP %{http_code}\\\\n\" \"https://floridaaventura-bot-production.up.railway.app/webhook?hub.mode=subscribe&hub.verify_token=x&hub.challenge=y\")"
     ]
   }
 }

@@ -304,10 +304,13 @@ async function igSend(recipientId, message) {
   });
   if (!res.ok) {
     console.error('[ig] Error enviando mensaje:', res.status, await res.text());
+  } else {
+    console.log('[ig] Mensaje enviado OK');
   }
 }
 
 async function handleIgMessage(senderId, text) {
+  console.log(`[ig] Procesando mensaje de ${senderId}: "${text}"`);
   const session = getIgSession(senderId);
   session.messages.push({ role: 'user', content: text });
   if (session.messages.length > 40) session.messages = session.messages.slice(-40);
@@ -374,16 +377,22 @@ app.get('/webhook', (req, res) => {
 app.post('/webhook', (req, res) => {
   res.sendStatus(200); // respondemos rápido para que Meta no reintente
 
+  console.log(`[webhook] POST recibido — object: ${req.body?.object} | entries: ${req.body?.entry?.length ?? 0}`);
+
   try {
     if (!verifySignature(req)) { console.warn('[webhook] Firma inválida — descartado'); return; }
 
     const body = req.body;
-    if (!body || body.object !== 'instagram') return;
+    if (!body || body.object !== 'instagram') {
+      console.log(`[webhook] Ignorado — object no es "instagram" (es: ${body?.object})`);
+      return;
+    }
 
     for (const entry of body.entry || []) {
       for (const event of entry.messaging || []) {
         const senderId = event.sender?.id;
         const msg = event.message;
+        console.log(`[webhook] evento de ${senderId} — texto: "${msg?.text ?? '(sin texto)'}" — echo: ${!!msg?.is_echo}`);
 
         if (!senderId || !msg) continue;
         if (msg.is_echo) continue;          // ignorar los mensajes que enviamos nosotros
