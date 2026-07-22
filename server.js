@@ -248,15 +248,18 @@ app.post('/chat', async (req, res) => {
 // En memoria: simple y suficiente para el turno nocturno. Se reinicia si Railway
 // redeploya o reinicia el proceso. Migrar a una DB si se necesita persistencia real.
 
-const igSessions = new Map(); // senderId -> { messages: [...], updatedAt }
+const igSessions = new Map(); // senderId -> { messages: [...], updatedAt, humanUntil, lastFallbackAt }
 const SESSION_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas de inactividad
 const seenMids = new Set();   // dedupe de reintentos de Meta
+const ownMids = new Set();    // ids de mensajes que mandó el bot (para no confundirlos con una respuesta humana)
+const HUMAN_HANDOFF_MS = 2 * 60 * 60 * 1000; // si alguien contesta manualmente, el bot se calla en esa charla por 2hs
+const FALLBACK_COOLDOWN_MS = 15 * 60 * 1000; // no repetir el mensaje de error más de una vez cada 15 min por charla
 
 function getIgSession(senderId) {
   const now = Date.now();
   let s = igSessions.get(senderId);
   if (!s || now - s.updatedAt > SESSION_TTL_MS) {
-    s = { messages: [], updatedAt: now };
+    s = { messages: [], updatedAt: now, humanUntil: 0, lastFallbackAt: 0 };
     igSessions.set(senderId, s);
   }
   return s;
@@ -306,6 +309,11 @@ async function igSend(recipientId, message) {
   if (!res.ok) {
     console.error('[ig] Error enviando mensaje:', res.status, await res.text());
   } else {
+    const data = await res.json().catch(() => null);
+    if (data?.message_id) {
+      ownMids.add(data.message_id);
+      if (ownMids.size > 1000) ownMids.clear();
+    }
     console.log('[ig] Mensaje enviado OK');
   }
 }
@@ -358,6 +366,14 @@ async function handleIgMessage(senderId, text) {
     result = await runBot(session.messages, { channel: 'instagram' });
   } catch (err) {
     console.error('[ig] runBot error:', err.message);
+    const now = Date.now();
+    if (now - session.lastFallbackAt < FALLBACK_COOLDOWN_MS) {
+      // Ya le avisamos hace poco que hubo un problema — no lo repetimos por cada mensaje nuevo.
+      console.log(`[ig] Falla repetida con ${senderId} — no reenvío el aviso (cooldown), atiende Patricia`);
+      session.messages.pop(); // sacamos el mensaje que no pudimos procesar para no romper la alternancia user/assistant
+      return;
+    }
+    session.lastFallbackAt = now;
     result = { text: 'Disculpá, tuve un inconveniente. Escribile a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] };
   }
 
@@ -456,11 +472,26 @@ app.post('/webhook', (req, res) => {
 
       for (const event of events) {
         const senderId = event?.sender?.id;
+        const recipientId = event?.recipient?.id;
         const msg = event?.message;
         console.log(`[webhook] evento de ${senderId} — texto: "${msg?.text ?? '(sin texto)'}" — echo: ${!!msg?.is_echo}`);
 
-        if (!senderId || !msg) continue;
-        if (msg.is_echo) continue;          // ignorar los mensajes que enviamos nosotros
+        if (!msg) continue;
+
+        if (msg.is_echo) {
+          // Es un mensaje que salió desde la página hacia el cliente (recipientId).
+          // Si el mid no es nuestro, alguien lo contestó a mano (Patricia u otro humano):
+          // pausamos al bot en esa charla para que no se pisen las respuestas.
+          if (msg.mid && ownMids.has(msg.mid)) continue;
+          if (recipientId) {
+            const session = getIgSession(recipientId);
+            session.humanUntil = Date.now() + HUMAN_HANDOFF_MS;
+            console.log(`[webhook] Respuesta manual detectada para ${recipientId} — pauso el bot ${HUMAN_HANDOFF_MS / 60000} min`);
+          }
+          continue;
+        }
+
+        if (!senderId) continue;
         if (!msg.text) continue;            // por ahora solo texto (no stickers/adjuntos)
 
         // dedupe de reintentos
@@ -473,6 +504,12 @@ app.post('/webhook', (req, res) => {
         // Fuera del horario del bot → no contestamos, atiende Patricia
         if (!isBotActiveNow()) {
           console.log(`[webhook] Fuera de horario del bot (hora Florida: ${floridaHour()}) — atiende Patricia`);
+          continue;
+        }
+
+        const session = getIgSession(senderId);
+        if (session.humanUntil && Date.now() < session.humanUntil) {
+          console.log(`[webhook] Charla con ${senderId} pausada por handoff humano — no contesto`);
           continue;
         }
 
