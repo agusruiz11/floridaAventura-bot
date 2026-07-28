@@ -386,7 +386,15 @@ async function igSendAction(recipientId, action) {
 
 // Envía una secuencia de mensajes ya armada, respetando el ritmo humano.
 async function igSendSequence(recipientId, messages) {
+  const session = igSessions.get(recipientId);
   for (const [i, message] of messages.entries()) {
+    // Con la pausa humana la secuencia dura ~20s: tiempo de sobra para que
+    // Patricia conteste a mano en el medio. Si eso pasa, cortamos acá en vez de
+    // seguir mandando mensajes encima de su respuesta.
+    if (session?.humanUntil && Date.now() < session.humanUntil) {
+      console.log(`[ig] Handoff humano durante el envío — corto la secuencia (quedaban ${messages.length - i} mensajes)`);
+      return;
+    }
     await igSendAction(recipientId, 'typing_on');
     // El primero sale antes: el cliente ya esperó lo que tardó runBot en pensar
     await sleep(i === 0 ? Math.min(1200, humanDelay()) : humanDelay());

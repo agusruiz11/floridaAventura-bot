@@ -13,7 +13,11 @@
       "Bash(curl -s -o /dev/null -w \"GET / -> HTTP %{http_code}\\\\n\" \"https://floridaaventura-bot-production.up.railway.app/\")",
       "Bash(curl -s -o /dev/null -w \"GET /webhook -> HTTP %{http_code}\\\\n\" \"https://floridaaventura-bot-production.up.railway.app/webhook?hub.mode=subscribe&hub.verify_token=x&hub.challenge=y\")",
       "Read(//media/elmapache/Western Digital HDD/Mis Archivos/Documentos/1. work/1. Posicionarte/proyectos/tokkoBot/**)",
-      "Bash(PORT=3999 timeout 6 node server.js)"
+      "Bash(PORT=3999 timeout 6 node server.js)",
+      "Bash(git branch *)",
+      "Bash(git fetch *)",
+      "Bash(git rebase *)",
+      "Bash(echo \"=== EXIT: $? ===\")"
     ]
   }
 }
