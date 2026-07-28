@@ -146,7 +146,35 @@ const IG_CLOSED_NOTE = 'En este momento estamos cerrados, pero en mi rol de Asis
 // Contexto extra que se le agrega al prompt SOLO en el canal Instagram (horario nocturno)
 const INSTAGRAM_NIGHT_SUFFIX = `
 ━━━━━━━━━━━━━━━━━━━━━━━ CANAL INSTAGRAM — HORARIO NOCTURNO ━━━━━━━━━━━━━━━━━━━━━━━
-Estás atendiendo por Instagram fuera del horario comercial: la empresa está cerrada y Patricia atiende personalmente durante el día. Podés responder consultas y cotizar con normalidad. Si el cliente necesita hablar con una persona, aclarale con calidez que Patricia lo va a contactar durante la mañana.`;
+Estás atendiendo por Instagram fuera del horario comercial: la empresa está cerrada y Patricia atiende personalmente durante el día. Podés responder consultas y cotizar con normalidad. Si el cliente necesita hablar con una persona, aclarale con calidez que Patricia lo va a contactar durante la mañana.
+
+REGLAS DE ESTE CANAL — TIENEN PRIORIDAD SOBRE LAS SECCIONES DE ARRIBA
+Instagram es un DM: cada bloque de auto se envía como un mensaje separado. Una lista larga se convierte en una ráfaga de mensajes que abruma al cliente. Por eso acá el criterio es "pocas opciones y bien elegidas", no "todas".
+
+1) ANTES DE BUSCAR — CALIFICÁ MEJOR
+Además de las fechas y los horarios de retiro/devolución, en este canal necesitás dos datos más antes de llamar a buscar_autos:
+— Cuántas valijas llevan. Es el factor que realmente limita qué auto sirve.
+— Qué destinos piensan visitar. Define el cargo de SunPass y si les conviene un auto más amplio.
+Preguntalos de forma natural y en un mismo mensaje, respetando el máximo de 2 preguntas por mensaje. Ejemplo: "¡Buenísimo! ¿Cuántas valijas llevan y qué lugares tienen pensado visitar? Con eso te muestro las opciones que mejor les van."
+Si el cliente no sabe o no contesta, no insistas más de una vez: buscá igual y mostrá las 3 opciones más versátiles.
+Sigue vigente la regla de NUNCA sugerir modelos ni categorías antes de llamar a buscar_autos.
+
+2) AL PRESENTAR — MÁXIMO 3 AUTOS
+Llamá a buscar_autos normalmente, pero mostrale al cliente SOLO LOS 3 QUE MEJOR SE AJUSTAN a lo que pidió. Esto reemplaza la regla de "mostrá TODOS los autos disponibles" de la sección CÓMO PRESENTAR LOS AUTOS: en Instagram nunca muestres más de 3.
+Para elegir esos 3 usás únicamente los datos reales que devuelve la herramienta:
+— suitcasesAmount ≥ las valijas que dijo el cliente. Es el criterio principal.
+— passengersAmount ≥ la cantidad de personas, si la mencionó.
+— Si pidió un tipo puntual (minivan, SUV, auto chico), solo autos de ese tipo.
+— A igualdad de condiciones, dale variedad de precio: una opción económica, una intermedia y una más amplia.
+Si hay menos de 3 disponibles, mostrá los que haya. Nunca completes la lista con autos que no estén en el resultado de la herramienta.
+El formato de cada auto es exactamente el de la sección CÓMO PRESENTAR LOS AUTOS — no lo abrevies ni le saques líneas. La foto de cada auto se envía automáticamente debajo de su bloque.
+
+3) SIEMPRE ACLARÁ QUE HAY MÁS OPCIONES
+Después del último auto, y antes del disclaimer de cotización, agregá una línea avisando que hay más opciones disponibles y ofreciendo pasarlas. Variá la redacción, no la repitas igual en cada conversación. Ejemplos:
+— "Estas son las 3 que mejor se ajustan a lo que me contaste, pero tenemos más disponibles para esas fechas. Si querés ver alguna en particular, decime y te la paso."
+— "Te dejo las 3 más convenientes para tu viaje. Hay otras opciones disponibles: si buscabas algo distinto (más chico, más grande, otro presupuesto), avisame y te muestro."
+Nunca digas un número exacto de autos restantes.
+Si el cliente pide otras opciones o un modelo puntual, volvé a llamar a buscar_autos con las mismas fechas y mostrale hasta 3 autos más, sin repetir los que ya le mandaste.`;
 
 // ─── Núcleo del bot (compartido entre la web y Instagram) ────────────────────
 
@@ -320,6 +348,56 @@ async function igSend(recipientId, message) {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+// ─── Ritmo de envío en Instagram ─────────────────────────────────────────────
+// Meta penaliza las ráfagas de mensajes automáticos. Espaciamos cada envío con
+// una pausa aleatoria (el jitter importa: una cadencia exacta y constante es más
+// fácil de detectar como bot que una variable) y mostramos "escribiendo…" para
+// que la espera se vea natural en vez de parecer que el bot se colgó.
+const IG_MSG_DELAY_MS = Number(process.env.IG_MSG_DELAY_MS ?? 3500);
+const IG_MSG_JITTER_MS = Number(process.env.IG_MSG_JITTER_MS ?? 1200);
+const IG_TYPING = (process.env.IG_TYPING || 'true') !== 'false';
+// Tope duro de autos por respuesta. El prompt ya le pide al bot mostrar como
+// máximo esta cantidad; esto es la red de seguridad por si igual manda de más.
+const IG_MAX_CARS = Number(process.env.IG_MAX_CARS ?? 3);
+
+// Pausa aleatoria alrededor de IG_MSG_DELAY_MS (con los valores por defecto: 2,3s a 4,7s)
+function humanDelay() {
+  const jitter = (Math.random() * 2 - 1) * IG_MSG_JITTER_MS;
+  return Math.max(500, Math.round(IG_MSG_DELAY_MS + jitter));
+}
+
+async function igSendAction(recipientId, action) {
+  if (!IG_TYPING) return;
+  const base = process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0';
+  const token = process.env.IG_ACCESS_TOKEN;
+  if (!token) return;
+  try {
+    const res = await fetch(`${base}/me/messages?access_token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient: { id: recipientId }, sender_action: action }),
+    });
+    // No es crítico: si falla, seguimos enviando igual (solo perdemos el indicador)
+    if (!res.ok) console.warn('[ig] sender_action falló:', res.status);
+  } catch (err) {
+    console.warn('[ig] sender_action error:', err.message);
+  }
+}
+
+// Envía una secuencia de mensajes ya armada, respetando el ritmo humano.
+async function igSendSequence(recipientId, messages) {
+  for (const [i, message] of messages.entries()) {
+    await igSendAction(recipientId, 'typing_on');
+    // El primero sale antes: el cliente ya esperó lo que tardó runBot en pensar
+    await sleep(i === 0 ? Math.min(1200, humanDelay()) : humanDelay());
+    try {
+      await igSend(recipientId, message);
+    } catch (err) {
+      console.error('[ig] Error enviando mensaje de la secuencia:', err.message);
+    }
+  }
+}
+
 // Normaliza el nombre de un auto para poder matchear el texto con su imagen
 function normalizeCarName(s) {
   return s
@@ -380,41 +458,45 @@ async function handleIgMessage(senderId, text) {
   session.messages.push({ role: 'assistant', content: result.text });
   session.updatedAt = Date.now();
 
-  // Enviamos intercalando: el texto de cada auto y su foto justo debajo, en vez de
-  // mandar todo el texto primero y todas las fotos juntas al final.
+  // Armamos toda la secuencia de salida primero y después la enviamos con el
+  // ritmo humano. Cuantos menos mensajes, mejor: la ráfaga es lo que Meta mira.
   const images = result.images || [];
   const sendImages = (process.env.IG_SEND_IMAGES || 'true') !== 'false';
   const { intro, cars, outro } = splitIntoSegments(result.text);
 
-  // Caso simple (sin autos o sin fotos): todo el texto y, si hay, las fotos al final
+  const outbound = [];
+  const pushText = (t) => {
+    for (const chunk of chunkText(formatForInstagram(t))) outbound.push({ text: chunk });
+  };
+  const pushImage = (url) => outbound.push({ attachment: { type: 'image', payload: { url, is_reusable: false } } });
+
   if (cars.length === 0 || images.length === 0 || !sendImages) {
-    const full = isFirstReply ? `${IG_CLOSED_NOTE}\n\n${result.text}` : result.text;
-    for (const chunk of chunkText(formatForInstagram(full))) { await igSend(senderId, { text: chunk }); await sleep(250); }
-    if (sendImages) {
-      for (const img of images.slice(0, 6)) {
-        try { await igSend(senderId, { attachment: { type: 'image', payload: { url: img.url, is_reusable: false } } }); await sleep(250); }
-        catch (err) { console.error('[ig] Error enviando imagen:', err.message); }
-      }
-    }
-    return;
+    // Caso simple (sin autos o sin fotos): todo el texto y, si hay, las fotos al final
+    pushText(isFirstReply ? `${IG_CLOSED_NOTE}\n\n${result.text}` : result.text);
+    if (sendImages) for (const img of images.slice(0, IG_MAX_CARS)) pushImage(img.url);
+  } else {
+    // Caso con autos + fotos: intro → (texto del auto + su foto) por cada auto → cierre
+    const introFull = (isFirstReply ? `${IG_CLOSED_NOTE}${intro ? `\n\n${intro}` : ''}` : intro).trim();
+    const shown = cars.slice(0, IG_MAX_CARS);
+
+    // Si la intro es corta, la mandamos pegada al primer auto en vez de como
+    // mensaje aparte — un mensaje menos en la secuencia.
+    const mergeIntro = introFull && shown.length > 0 &&
+      (introFull.length + shown[0].text.length) < 600;
+
+    if (introFull && !mergeIntro) pushText(introFull);
+
+    shown.forEach((car, i) => {
+      pushText(mergeIntro && i === 0 ? `${introFull}\n\n${car.text}` : car.text);
+      const img = findImageFor(car.name, images);
+      if (img) pushImage(img.url);
+    });
+
+    if (outro.trim()) pushText(outro);
   }
 
-  // Caso con autos + fotos: intro → (texto del auto + su foto) por cada auto → cierre/disclaimer
-  const introFull = isFirstReply ? `${IG_CLOSED_NOTE}${intro ? `\n\n${intro}` : ''}` : intro;
-  if (introFull.trim()) {
-    for (const chunk of chunkText(formatForInstagram(introFull))) { await igSend(senderId, { text: chunk }); await sleep(250); }
-  }
-  for (const car of cars) {
-    for (const chunk of chunkText(formatForInstagram(car.text))) { await igSend(senderId, { text: chunk }); await sleep(250); }
-    const img = findImageFor(car.name, images);
-    if (img) {
-      try { await igSend(senderId, { attachment: { type: 'image', payload: { url: img.url, is_reusable: false } } }); await sleep(300); }
-      catch (err) { console.error('[ig] Error enviando imagen:', err.message); }
-    }
-  }
-  if (outro.trim()) {
-    for (const chunk of chunkText(formatForInstagram(outro))) { await igSend(senderId, { text: chunk }); await sleep(250); }
-  }
+  console.log(`[ig] Enviando ${outbound.length} mensajes (pausa ~${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms)`);
+  await igSendSequence(senderId, outbound);
 }
 
 // Valida que el webhook venga realmente de Meta (firma HMAC con el App Secret)
@@ -527,4 +609,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Florida Aventura Bot corriendo en http://localhost:${PORT}`);
   console.log(`[ig] Canal Instagram: ${(process.env.IG_ENABLED || 'true') === 'false' ? 'APAGADO' : `activo ${process.env.IG_BOT_START_HOUR ?? 23}:00–${process.env.IG_BOT_END_HOUR ?? 7}:00 (${IG_TZ})`}`);
+  console.log(`[ig] Ritmo: pausa ${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms · typing ${IG_TYPING ? 'on' : 'off'} · máx ${IG_MAX_CARS} autos por respuesta`);
 });
