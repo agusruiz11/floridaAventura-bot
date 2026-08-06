@@ -17,7 +17,22 @@
       "Bash(git branch *)",
       "Bash(git fetch *)",
       "Bash(git rebase *)",
-      "Bash(echo \"=== EXIT: $? ===\")"
+      "Bash(echo \"=== EXIT: $? ===\")",
+      "Bash(ls -la \"/media/elmapache/Western Digital HDD/Mis Archivos/Documentos/1. work/1. Posicionarte/proyectos/futbolQueensBot\")",
+      "Read(//media/elmapache/Western Digital HDD/Mis Archivos/Documentos/1. work/1. Posicionarte/proyectos/futbolQueensBot/**)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(npm install *)",
+      "Bash(node \"/tmp/claude-1000/-media-elmapache-Western-Digital-HDD-Mis-Archivos-Documentos-1--work-1--Posicionarte-proyectos-floridaAventuraBot/d5a8a16c-72dd-465d-9a59-1178e4775dc6/scratchpad/check.mjs\")",
+      "Bash(git init *)",
+      "mcp__meta_developer_tools__devtools_app_list",
+      "mcp__meta_developer_tools__devtools_app_review",
+      "mcp__meta_developer_tools__devtools_compliance",
+      "Bash(node \"/tmp/claude-1000/-media-elmapache-Western-Digital-HDD-Mis-Archivos-Documentos-1--work-1--Posicionarte-proyectos-floridaAventuraBot/b969aefd-93d6-4131-88f2-de288c3d6bda/scratchpad/check-token.mjs\")",
+      "Bash(node --env-file=.env \"/tmp/claude-1000/-media-elmapache-Western-Digital-HDD-Mis-Archivos-Documentos-1--work-1--Posicionarte-proyectos-floridaAventuraBot/b969aefd-93d6-4131-88f2-de288c3d6bda/scratchpad/check-token.mjs\")"
+    ],
+    "additionalDirectories": [
+      "/media/elmapache/Western Digital HDD/Mis Archivos/Documentos/1. work/1. Posicionarte/proyectos/futbolQueensBot"
     ]
   }
 }

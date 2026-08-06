@@ -466,8 +466,16 @@ async function handleIgMessage(senderId, text) {
   session.messages.push({ role: 'assistant', content: result.text });
   session.updatedAt = Date.now();
 
-  // Armamos toda la secuencia de salida primero y después la enviamos con el
-  // ritmo humano. Cuantos menos mensajes, mejor: la ráfaga es lo que Meta mira.
+  const outbound = buildIgOutbound(result, isFirstReply ? IG_CLOSED_NOTE : '');
+  console.log(`[ig] Enviando ${outbound.length} mensajes (pausa ~${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms)`);
+  await igSendSequence(senderId, outbound);
+}
+
+// Arma la secuencia de salida de una respuesta del bot. `leadNote` es el texto
+// que se antepone al primer mensaje (nota de "estamos cerrados" o de disculpa
+// por la demora); vacío si no corresponde ninguna.
+// Cuantos menos mensajes, mejor: la ráfaga es lo que Meta mira.
+function buildIgOutbound(result, leadNote = '') {
   const images = result.images || [];
   const sendImages = (process.env.IG_SEND_IMAGES || 'true') !== 'false';
   const { intro, cars, outro } = splitIntoSegments(result.text);
@@ -480,32 +488,291 @@ async function handleIgMessage(senderId, text) {
 
   if (cars.length === 0 || images.length === 0 || !sendImages) {
     // Caso simple (sin autos o sin fotos): todo el texto y, si hay, las fotos al final
-    pushText(isFirstReply ? `${IG_CLOSED_NOTE}\n\n${result.text}` : result.text);
+    pushText(leadNote ? `${leadNote}\n\n${result.text}` : result.text);
     if (sendImages) for (const img of images.slice(0, IG_MAX_CARS)) pushImage(img.url);
-  } else {
-    // Caso con autos + fotos: intro → (texto del auto + su foto) por cada auto → cierre
-    const introFull = (isFirstReply ? `${IG_CLOSED_NOTE}${intro ? `\n\n${intro}` : ''}` : intro).trim();
-    const shown = cars.slice(0, IG_MAX_CARS);
-
-    // Si la intro es corta, la mandamos pegada al primer auto en vez de como
-    // mensaje aparte — un mensaje menos en la secuencia.
-    const mergeIntro = introFull && shown.length > 0 &&
-      (introFull.length + shown[0].text.length) < 600;
-
-    if (introFull && !mergeIntro) pushText(introFull);
-
-    shown.forEach((car, i) => {
-      pushText(mergeIntro && i === 0 ? `${introFull}\n\n${car.text}` : car.text);
-      const img = findImageFor(car.name, images);
-      if (img) pushImage(img.url);
-    });
-
-    if (outro.trim()) pushText(outro);
+    return outbound;
   }
 
-  console.log(`[ig] Enviando ${outbound.length} mensajes (pausa ~${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms)`);
-  await igSendSequence(senderId, outbound);
+  // Caso con autos + fotos: intro → (texto del auto + su foto) por cada auto → cierre
+  const introFull = (leadNote ? `${leadNote}${intro ? `\n\n${intro}` : ''}` : intro).trim();
+  const shown = cars.slice(0, IG_MAX_CARS);
+
+  // Si la intro es corta, la mandamos pegada al primer auto en vez de como
+  // mensaje aparte — un mensaje menos en la secuencia.
+  const mergeIntro = introFull && shown.length > 0 &&
+    (introFull.length + shown[0].text.length) < 600;
+
+  if (introFull && !mergeIntro) pushText(introFull);
+
+  shown.forEach((car, i) => {
+    pushText(mergeIntro && i === 0 ? `${introFull}\n\n${car.text}` : car.text);
+    const img = findImageFor(car.name, images);
+    if (img) pushImage(img.url);
+  });
+
+  if (outro.trim()) pushText(outro);
+  return outbound;
 }
+
+// ─── Barrido de rescate: contestar lo que quedó colgado ──────────────────────
+// De día contesta Patricia y el bot está callado. Si un mensaje se le pasa, el
+// cliente queda sin respuesta hasta que se cansa. Este barrido corre durante el
+// turno del bot, lee las conversaciones REALES desde la Graph API (no desde
+// igSessions, que se pierde en cada redeploy de Railway) y contesta las que
+// quedaron sin respuesta.
+//
+// LÍMITE DE META: solo se puede escribirle a alguien dentro de las 24hs de su
+// último mensaje. Lo más viejo que eso no se puede rescatar por API — el barrido
+// lo saltea y lo deja listado en el log para que lo conteste Patricia a mano.
+//
+// El barrido es idempotente por naturaleza: apenas contesta, el último mensaje
+// del hilo pasa a ser nuestro, así que el siguiente barrido ya no lo levanta.
+
+const IG_RESCUE_ENABLED = (process.env.IG_RESCUE_ENABLED || 'true') !== 'false';
+// Contesta de verdad. IG_RESCUE_DRY_RUN=true lo pasa a simulacro: loguea a quién
+// le contestaría y con qué texto, sin enviar nada. Útil para depurar.
+const IG_RESCUE_DRY_RUN = (process.env.IG_RESCUE_DRY_RUN || 'false') !== 'false';
+const IG_RESCUE_INTERVAL_MIN = Number(process.env.IG_RESCUE_INTERVAL_MIN ?? 60);
+// Margen para no pisarle una respuesta que Patricia esté escribiendo justo ahora.
+// Corto a propósito: el barrido corre cuando ella ya terminó su turno, así que a
+// las 23:00 tiene que levantar prácticamente todo el día.
+const IG_RESCUE_MIN_AGE_MIN = Number(process.env.IG_RESCUE_MIN_AGE_MIN ?? 15);
+// Tope de antigüedad, con colchón contra las 24hs de Meta.
+const IG_RESCUE_MAX_AGE_H = Number(process.env.IG_RESCUE_MAX_AGE_H ?? 20);
+const IG_RESCUE_MAX_CONV = Number(process.env.IG_RESCUE_MAX_CONV ?? 15);
+// Pausa entre conversaciones. Contestarle a 10 personas seguidas en 30s es
+// exactamente el patrón que Meta marca como spam.
+const IG_RESCUE_GAP_MS = Number(process.env.IG_RESCUE_GAP_MS ?? 45000);
+
+const IG_RESCUE_NOTE_FIRST = 'Hola, ¡perdón por la demora en contestarte! Soy el Asistente Comercial de Florida Aventura: puedo responderte ahora mismo tus dudas y cotizarte el alquiler del auto. Mañana durante la mañana también vas a poder hablar directamente con Patricia.';
+const IG_RESCUE_NOTE_FOLLOWUP = '¡Perdón por la demora! Te sigo por acá.';
+
+async function igGraph(path, params = {}) {
+  const base = process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0';
+  const token = process.env.IG_ACCESS_TOKEN;
+  if (!token) throw new Error('Falta IG_ACCESS_TOKEN');
+  const qs = new URLSearchParams({ ...params, access_token: token });
+  const res = await fetch(`${base}${path}?${qs}`);
+  if (!res.ok) throw new Error(`Graph ${path} → ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+// Identificar "nuestra" cuenta es la parte delicada del barrido: según cómo se
+// generó el token, /me puede devolver el ID de la página de Facebook mientras
+// que los mensajes de Instagram vienen con el IGSID de la cuenta. Son números
+// distintos. Si comparáramos contra uno solo y fuera el equivocado, NINGÚN
+// mensaje figuraría como nuestro y el bot le volvería a escribir a todo el
+// mundo. Por eso juntamos todos los IDs que puedan representarnos.
+let igOwnIds = null;
+async function getIgOwnIds() {
+  if (igOwnIds) return igOwnIds;
+  const ids = new Set();
+  if (process.env.IG_ACCOUNT_ID) ids.add(process.env.IG_ACCOUNT_ID);
+  try {
+    const me = await igGraph('/me', { fields: 'id,instagram_business_account{id,username}' });
+    if (me.id) ids.add(me.id);
+    if (me.instagram_business_account?.id) ids.add(me.instagram_business_account.id);
+  } catch (err) {
+    console.warn('[rescate] No pude leer /me:', err.message);
+  }
+  if (!ids.size) throw new Error('No pude determinar el ID de nuestra cuenta — abortá el barrido');
+  console.log(`[rescate] IDs propios: ${[...ids].join(', ')}`);
+  igOwnIds = ids;
+  return igOwnIds;
+}
+
+// Convierte los mensajes de la Graph API al formato que espera runBot.
+// Dos cosas importantes: la API los devuelve del más nuevo al más viejo, y la
+// API de Anthropic exige alternancia estricta user/assistant (varios mensajes
+// seguidos del mismo lado hay que fusionarlos).
+function toBotMessages(apiMessages, ownIds) {
+  const out = [];
+  for (const m of [...apiMessages].reverse()) {
+    const text = (m.message || '').trim();
+    if (!text) continue; // fotos, stickers y audios no aportan contexto de texto
+    const role = ownIds.has(m.from?.id) ? 'assistant' : 'user';
+    const last = out[out.length - 1];
+    if (last && last.role === role) last.content += `\n${text}`;
+    else out.push({ role, content: text });
+  }
+  while (out.length && out[0].role === 'assistant') out.shift(); // tiene que arrancar con el cliente
+  return out;
+}
+
+async function rescuePendingConversations() {
+  const ownIds = await getIgOwnIds();
+  const data = await igGraph('/me/conversations', {
+    platform: 'instagram',
+    limit: '50',
+    fields: 'participants,updated_time,messages.limit(30){id,created_time,from,message}',
+  });
+  const conversations = data?.data || [];
+  console.log(`[rescate] ${conversations.length} conversaciones a revisar${IG_RESCUE_DRY_RUN ? ' (SIMULACRO — no envío nada)' : ''}`);
+
+  // Freno de mano. Si en NINGÚN mensaje de NINGUNA conversación aparece uno de
+  // nuestros IDs, es que los IDs no coinciden con los que usa la API de mensajes
+  // (página vs IGSID). En ese caso todo figuraría como "sin responder" y el bot
+  // le escribiría de nuevo a gente ya atendida. Preferimos no hacer nada.
+  const totalMsgs = conversations.reduce((n, c) => n + (c.messages?.data?.length || 0), 0);
+  const propios = conversations.reduce(
+    (n, c) => n + (c.messages?.data || []).filter((m) => ownIds.has(m.from?.id)).length, 0);
+  if (totalMsgs > 0 && propios === 0) {
+    console.error(`[rescate] ⚠️  ABORTO: revisé ${totalMsgs} mensajes y ninguno figura como nuestro. Los IDs propios (${[...ownIds].join(', ')}) no coinciden con los de la API de mensajes. Seteá IG_ACCOUNT_ID con el IGSID correcto antes de seguir.`);
+    return { revisadas: conversations.length, contestadas: 0, fueraDeVentana: [], salteadas: conversations.length, abortado: true };
+  }
+
+  const summary = { revisadas: conversations.length, contestadas: 0, fueraDeVentana: [], salteadas: 0 };
+
+  for (const conv of conversations) {
+    if (summary.contestadas >= IG_RESCUE_MAX_CONV) {
+      console.log(`[rescate] Tope de ${IG_RESCUE_MAX_CONV} conversaciones alcanzado — corto acá`);
+      break;
+    }
+
+    const msgs = conv.messages?.data || [];
+    if (!msgs.length) { summary.salteadas++; continue; }
+
+    const last = msgs[0]; // el más nuevo
+    if (ownIds.has(last.from?.id)) { summary.salteadas++; continue; } // ya está contestada
+
+    const senderId = last.from?.id;
+    if (!senderId) { summary.salteadas++; continue; }
+
+    const who = conv.participants?.data?.find((p) => !ownIds.has(p.id));
+    const label = who?.username ? `@${who.username}` : senderId;
+
+    const ageMs = Date.now() - Date.parse(last.created_time);
+    if (!Number.isFinite(ageMs)) { summary.salteadas++; continue; }
+
+    if (ageMs < IG_RESCUE_MIN_AGE_MIN * 60000) {
+      console.log(`[rescate] ${label}: sin respuesta hace ${Math.round(ageMs / 60000)} min — todavía es de Patricia, salteo`);
+      summary.salteadas++;
+      continue;
+    }
+    if (ageMs > IG_RESCUE_MAX_AGE_H * 3600000) {
+      const horas = Math.round(ageMs / 3600000);
+      console.log(`[rescate] ${label}: sin respuesta hace ${horas}hs — FUERA de la ventana de 24hs de Meta, lo tiene que contestar Patricia a mano`);
+      summary.fueraDeVentana.push({ label, horas });
+      continue;
+    }
+
+    const session = getIgSession(senderId);
+    if (session.humanUntil && Date.now() < session.humanUntil) {
+      console.log(`[rescate] ${label}: handoff humano activo — no me meto`);
+      summary.salteadas++;
+      continue;
+    }
+
+    const history = toBotMessages(msgs, ownIds);
+    if (!history.length || history[history.length - 1].role !== 'user') {
+      console.log(`[rescate] ${label}: no pude reconstruir la charla (¿mensajes sin texto?) — salteo`);
+      summary.salteadas++;
+      continue;
+    }
+
+    console.log(`[rescate] ${label}: sin respuesta hace ${Math.round(ageMs / 60000)} min — contesto (${history.length} mensajes de contexto)`);
+
+    let result;
+    try {
+      result = await runBot(history, { channel: 'instagram' });
+    } catch (err) {
+      console.error(`[rescate] ${label}: runBot falló — ${err.message}`);
+      summary.salteadas++;
+      continue;
+    }
+
+    const yaHablamos = history.some((m) => m.role === 'assistant');
+    const outbound = buildIgOutbound(result, yaHablamos ? IG_RESCUE_NOTE_FOLLOWUP : IG_RESCUE_NOTE_FIRST);
+
+    // Dejamos asentado qué se le mandó a cada uno: a la mañana siguiente es el
+    // único registro para auditar el barrido sin abrir el inbox uno por uno.
+    console.log(`[rescate] ${IG_RESCUE_DRY_RUN ? 'SIMULACRO — a' : 'A'} ${label} le ${IG_RESCUE_DRY_RUN ? 'mandaría' : 'mando'} ${outbound.length} mensajes:`);
+    for (const m of outbound) console.log(`  · ${m.text ? m.text.slice(0, 160).replace(/\n/g, ' ⏎ ') : `[foto] ${m.attachment?.payload?.url}`}`);
+
+    if (!IG_RESCUE_DRY_RUN) {
+      // Dejamos la charla cargada en memoria para que, si el cliente responde,
+      // el webhook siga la conversación en vez de arrancar de cero.
+      session.messages = [...history, { role: 'assistant', content: result.text }];
+      session.updatedAt = Date.now();
+      await igSendSequence(senderId, outbound);
+    }
+
+    summary.contestadas++;
+    await sleep(IG_RESCUE_GAP_MS);
+  }
+
+  console.log(`[rescate] Listo — ${summary.contestadas} contestadas, ${summary.salteadas} salteadas, ${summary.fueraDeVentana.length} fuera de ventana`);
+  if (summary.fueraDeVentana.length) {
+    console.log(`[rescate] Para Patricia (fuera de las 24hs, hay que contestarlos a mano): ${summary.fueraDeVentana.map((c) => `${c.label} (${c.horas}hs)`).join(', ')}`);
+  }
+  return summary;
+}
+
+// ─── Estado del token ────────────────────────────────────────────────────────
+// El token de Meta puede vencer y, cuando vence, el bot deja de contestar EN
+// SILENCIO: los envíos fallan y nadie se entera hasta que alguien mira el inbox.
+// Lo consultamos al arrancar y una vez por día para que quede en los logs.
+
+async function logTokenStatus() {
+  const token = process.env.IG_ACCESS_TOKEN;
+  if (!token) { console.warn('[token] No hay IG_ACCESS_TOKEN configurado'); return; }
+  try {
+    const qs = new URLSearchParams({ input_token: token, access_token: token });
+    const res = await fetch(`https://graph.facebook.com/debug_token?${qs}`);
+    const body = await res.json();
+    if (body.error) { console.error(`[token] No pude verificarlo: ${body.error.message}`); return; }
+
+    const d = body.data || {};
+    if (!d.is_valid) { console.error('[token] ⚠️  EL TOKEN NO ES VÁLIDO — el bot no puede contestar'); return; }
+
+    if (!d.expires_at) {
+      console.log('[token] OK — no expira (token de larga duración)');
+      return;
+    }
+    const dias = Math.round((d.expires_at * 1000 - Date.now()) / 86400000);
+    const fecha = new Date(d.expires_at * 1000).toISOString().slice(0, 10);
+    if (dias <= 14) console.error(`[token] ⚠️  VENCE EN ${dias} DÍAS (${fecha}) — hay que renovarlo en Meta`);
+    else console.log(`[token] OK — vence en ${dias} días (${fecha})`);
+  } catch (err) {
+    console.error('[token] Error consultando debug_token:', err.message);
+  }
+}
+
+let rescueRunning = false;
+let lastRescueAt = 0;
+
+// Chequeamos seguido pero barremos espaciado. Así el primer barrido cae apenas
+// arranca el turno del bot (23:00) en vez de hasta una hora después, que es
+// justo el momento que importa: es cuando Patricia deja de contestar y hay que
+// levantar todo lo que quedó colgado del día.
+const RESCUE_CHECK_MS = 5 * 60 * 1000;
+
+async function rescueTick({ force = false } = {}) {
+  if (!IG_RESCUE_ENABLED) return null;
+  if (!force) {
+    if (!isBotActiveNow()) return null;
+    if (Date.now() - lastRescueAt < IG_RESCUE_INTERVAL_MIN * 60000) return null;
+  }
+  if (rescueRunning) { console.log('[rescate] Ya hay un barrido en curso — salteo este tick'); return null; }
+  rescueRunning = true;
+  lastRescueAt = Date.now();
+  try {
+    return await rescuePendingConversations();
+  } catch (err) {
+    console.error('[rescate] Error:', err.message);
+    return null;
+  } finally {
+    rescueRunning = false;
+  }
+}
+
+// Disparo manual para probar sin esperar a las 23:00. Requiere IG_RESCUE_TOKEN.
+app.post('/admin/ig-rescue', async (req, res) => {
+  const token = process.env.IG_RESCUE_TOKEN;
+  if (!token || req.get('x-rescue-token') !== token) return res.sendStatus(403);
+  const summary = await rescueTick({ force: true });
+  res.json({ dryRun: IG_RESCUE_DRY_RUN, summary });
+});
 
 // Valida que el webhook venga realmente de Meta (firma HMAC con el App Secret)
 function verifySignature(req) {
@@ -618,4 +885,15 @@ app.listen(PORT, () => {
   console.log(`Florida Aventura Bot corriendo en http://localhost:${PORT}`);
   console.log(`[ig] Canal Instagram: ${(process.env.IG_ENABLED || 'true') === 'false' ? 'APAGADO' : `activo ${process.env.IG_BOT_START_HOUR ?? 23}:00–${process.env.IG_BOT_END_HOUR ?? 7}:00 (${IG_TZ})`}`);
   console.log(`[ig] Ritmo: pausa ${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms · typing ${IG_TYPING ? 'on' : 'off'} · máx ${IG_MAX_CARS} autos por respuesta`);
+
+  logTokenStatus();
+  setInterval(logTokenStatus, 24 * 60 * 60 * 1000);
+
+  if (IG_RESCUE_ENABLED) {
+    console.log(`[rescate] Activo: primer barrido al arrancar el turno (${process.env.IG_BOT_START_HOUR ?? 23}:00) y después cada ${IG_RESCUE_INTERVAL_MIN} min · rescata entre ${IG_RESCUE_MIN_AGE_MIN} min y ${IG_RESCUE_MAX_AGE_H}hs de antigüedad · máx ${IG_RESCUE_MAX_CONV} por barrido${IG_RESCUE_DRY_RUN ? ' · SIMULACRO (no envía)' : ''}`);
+    setInterval(() => { rescueTick(); }, RESCUE_CHECK_MS);
+    setTimeout(() => { rescueTick(); }, 60000); // por si el proceso arranca con el turno ya empezado
+  } else {
+    console.log('[rescate] Desactivado (IG_RESCUE_ENABLED=false)');
+  }
 });
