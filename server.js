@@ -180,14 +180,51 @@ Si el cliente pide otras opciones o un modelo puntual, volvé a llamar a buscar_
 
 const FALLBACK_MSG = 'Tuve un problema procesando tu consulta. Escribile directamente a Patricia: https://wa.me/13057731787';
 
+const MODEL = process.env.BOT_MODEL || 'claude-sonnet-5';
+// Sonnet 5 arranca en effort "high" si no se dice nada. Este bot hace loops de
+// tools, así que "medium" alcanza y sale bastante más barato.
+const EFFORT = process.env.BOT_EFFORT || 'medium';
+
+// Deja UN solo breakpoint de cache en la historia: el último bloque del último
+// mensaje. Los mensajes que llegan de afuera pueden traer content como string
+// (no acepta cache_control), así que en ese caso no marca nada y listo.
+function marcarUltimoBloque(messages) {
+  for (const m of messages) {
+    if (Array.isArray(m.content)) for (const b of m.content) delete b.cache_control;
+  }
+  const ultimo = messages[messages.length - 1];
+  if (!ultimo || !Array.isArray(ultimo.content) || !ultimo.content.length) return;
+  ultimo.content[ultimo.content.length - 1].cache_control = { type: 'ephemeral' };
+}
+
 async function runBot(messages, { channel = 'web' } = {}) {
   let currentMessages = [...messages];
   let finalText = '';
   let lastSearchImages = [];
 
   const today = floridaDateStr();
-  let system = `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.\n\n${SYSTEM_PROMPT}`;
-  if (channel === 'instagram') system += `\n\n${INSTAGRAM_NIGHT_SUFFIX}`;
+
+  // El prompt + el sufijo de Instagram son ~12k tokens que se repiten en CADA
+  // llamada, y en el loop de tools se repiten hasta 15 veces por conversación.
+  // Por eso van primero y con cache_control: la primera llamada escribe el cache
+  // y las demás lo leen a ~0,1x del precio de input.
+  //
+  // El cache es un match por PREFIJO: alcanza con que cambie un byte arriba para
+  // invalidar todo lo que sigue. Por eso la fecha —lo único que varía— va en un
+  // segundo bloque, DESPUÉS del breakpoint. Antes estaba arriba de todo, que es
+  // justo lo que impide cachear. Las TOOLS se renderizan antes que el system, así
+  // que este breakpoint las cubre también.
+  const stable = channel === 'instagram'
+    ? `${SYSTEM_PROMPT}\n\n${INSTAGRAM_NIGHT_SUFFIX}`
+    : SYSTEM_PROMPT;
+
+  const system = [
+    { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
+    {
+      type: 'text',
+      text: `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.`,
+    },
+  ];
 
   const MAX_ITERATIONS = 15;
   let iterations = 0;
@@ -199,12 +236,33 @@ async function runBot(messages, { channel = 'web' } = {}) {
     }
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 2048,
+      model: MODEL,
+      // Sonnet 5 piensa por defecto (4.5 no lo hacía), y max_tokens es el techo del
+      // pensamiento MÁS el texto de la respuesta. Con los 2048 de antes una consulta
+      // con varias vueltas de tools se cortaba a la mitad. 8192 da aire de sobra.
+      max_tokens: 8192,
       system,
       tools: TOOLS,
       messages: currentMessages,
+      output_config: { effort: EFFORT },
     });
+
+    // Con el cache andando, la primera llamada escribe y las siguientes leen a ~0,1x.
+    // Si cache_read queda en 0 llamada tras llamada, algo se volvió a meter arriba
+    // del breakpoint (una fecha, una hora, un id) y hay que sacarlo de ahí.
+    if (process.env.BOT_DEBUG_CACHE === 'true') {
+      const u = response.usage;
+      console.log(`[cache:${channel}] write=${u.cache_creation_input_tokens ?? 0} read=${u.cache_read_input_tokens ?? 0} sin_cachear=${u.input_tokens}`);
+    }
+
+    // Un rechazo de los clasificadores llega como HTTP 200 con content vacío: si no
+    // se mira stop_reason antes de leer el contenido, el cliente recibe un mensaje
+    // en blanco. Sonnet 5 es bastante más capaz en ciberseguridad que 4.5 y por eso
+    // rechaza más seguido, aunque para este bot el riesgo es casi nulo.
+    if (response.stop_reason === 'refusal') {
+      console.warn(`[bot:${channel}] Respuesta rechazada por los clasificadores`);
+      return { text: FALLBACK_MSG, images: [], quickReplies: [] };
+    }
 
     if (response.stop_reason === 'end_turn') {
       finalText = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
@@ -231,7 +289,13 @@ async function runBot(messages, { channel = 'web' } = {}) {
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: toolContent });
       }
 
+      // Los resultados de buscar_autos son JSON grandes y se reenvían enteros en
+      // cada vuelta del loop. Un breakpoint móvil al final de la historia hace que
+      // la vuelta siguiente lea todo eso del cache en vez de reprocesarlo. Se
+      // limpia el anterior porque la API acepta 4 breakpoints por request: dejando
+      // uno solo acá (más el del system) nunca nos pasamos.
       currentMessages.push({ role: 'user', content: toolResults });
+      marcarUltimoBloque(currentMessages);
       continue;
     }
 
