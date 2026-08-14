@@ -40,6 +40,18 @@ const TOOLS = [
           type: 'string',
           description: 'Fecha y hora de fin en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss). Opcional.',
         },
+        destinos: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Destinos fuera de Miami que el cliente dijo que va a visitar (ej: ["Orlando", "Naples"]). ' +
+            'Sirve para calcular el cargo de SunPass. Omitilo si el cliente todavía no mencionó destinos: ' +
+            'en ese caso se usa la tarifa base de Miami. Opcional.',
+        },
+        puertoDeCruceros: {
+          type: 'boolean',
+          description: 'true solo si el cliente dijo que va al Puerto de Cruceros. Opcional.',
+        },
       },
       required: [],
     },
@@ -64,6 +76,96 @@ function isValidISODate(str) {
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(str) && !isNaN(Date.parse(str));
 }
 
+// ─── Cotización (se calcula acá, NO en el prompt) ────────────────────────────
+//
+// Antes el modelo sacaba de cabeza los días, la base, el SunPass y la suma. Eso
+// falla: en una cotización de 13 al 18 a USD 62/día devolvió 370 de base (no es
+// ni 5×62 ni 6×62), y en otra puso la base en el lugar del total. Los campos que
+// vienen calculados de la herramienta —passengersAmount, suitcasesAmount— nunca
+// salieron mal, así que la plata pasa por el mismo camino.
+
+// Días de alquiler contando AMBOS extremos: 13 al 18 = 6 días.
+// Compara solo la parte de fecha en UTC para que el horario de retiro/devolución
+// y los cambios de horario de verano no muevan la cuenta.
+function diasDeAlquiler(startDateTime, endDateTime) {
+  const inicio = Date.parse(`${startDateTime.slice(0, 10)}T00:00:00Z`);
+  const fin = Date.parse(`${endDateTime.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(inicio) || Number.isNaN(fin)) return null;
+  const dias = Math.round((fin - inicio) / 86_400_000) + 1;
+  return dias > 0 ? dias : null;
+}
+
+// Cargo fijo por viaje según destino (prompt.js, sección SUNPASS).
+const SUNPASS_POR_DESTINO = {
+  'isla morada': 15,
+  naples: 20,
+  'key west': 20.7,
+  clearwater: 24.7,
+  daytona: 30,
+  'west palm beach': 32.5,
+  orlando: 38,
+};
+
+const CARGO_PUERTO_CRUCEROS = 50;
+
+function normalizarDestino(d) {
+  return String(d)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim();
+}
+
+// Sin destinos fuera de Miami: USD 15 por semana o fracción (1-7 → 15, 8-14 → 30…).
+// Con destinos: suma de los cargos fijos de cada uno, como indica el prompt.
+function cargoSunPass(dias, destinos) {
+  const reconocidos = (destinos || [])
+    .map(normalizarDestino)
+    .filter((d) => d in SUNPASS_POR_DESTINO);
+
+  if (!reconocidos.length) {
+    return {
+      monto: Math.ceil(dias / 7) * 15,
+      detalle: 'tarifa base Miami (estimada: puede variar según los destinos del viaje)',
+      esEstimado: true,
+    };
+  }
+
+  const unicos = [...new Set(reconocidos)];
+  return {
+    monto: unicos.reduce((suma, d) => suma + SUNPASS_POR_DESTINO[d], 0),
+    detalle: unicos.join(' + '),
+    esEstimado: false,
+  };
+}
+
+// Los montos con decimales van con coma, como en los ejemplos del prompt (USD 20,70).
+function formatoUSD(n) {
+  const redondeado = Math.round(n * 100) / 100;
+  return Number.isInteger(redondeado) ? String(redondeado) : redondeado.toFixed(2).replace('.', ',');
+}
+
+// Devuelve la línea 💵 ya armada para que el modelo la copie tal cual.
+function cotizarAuto(car, dias, sunPass, puertoDeCruceros) {
+  if (dias == null || typeof car.pricePerDay !== 'number') return car;
+
+  const base = car.pricePerDay * dias;
+  const total = base + sunPass.monto + (puertoDeCruceros ? CARGO_PUERTO_CRUCEROS : 0);
+
+  const partes = [`USD ${formatoUSD(base)} base`, `USD ${formatoUSD(sunPass.monto)} SunPass`];
+  if (puertoDeCruceros) partes.push(`USD ${CARGO_PUERTO_CRUCEROS} Puerto de Cruceros`);
+
+  return {
+    ...car,
+    dias,
+    precioBase: formatoUSD(base),
+    sunPass: formatoUSD(sunPass.monto),
+    sunPassDetalle: sunPass.detalle,
+    total: formatoUSD(total),
+    lineaTotal: `💵 Total: USD ${formatoUSD(total)} (${partes.join(' + ')})`,
+  };
+}
+
 function extractQuickReplies(text) {
   const match = text.match(/\[QUICK_REPLIES:\s*([^\]]+)\]/);
   if (!match) return { cleanText: text, quickReplies: [] };
@@ -74,7 +176,7 @@ function extractQuickReplies(text) {
 
 async function executeTool(toolName, toolInput) {
   if (toolName === 'buscar_autos') {
-    const { startDateTime, endDateTime } = toolInput;
+    const { startDateTime, endDateTime, destinos, puertoDeCruceros } = toolInput;
 
     if (startDateTime && !isValidISODate(startDateTime)) {
       return { json: JSON.stringify({ error: 'startDateTime inválido. Pedile al cliente que confirme las fechas exactas.' }), images: [] };
@@ -104,7 +206,17 @@ async function executeTool(toolName, toolInput) {
     if (sinImagen.length) console.log(`[buscar_autos] SIN imagen: ${sinImagen.join(', ')}`);
 
     const unique = [...new Map(data.map((d) => [d.name, d])).values()];
-    return { json: JSON.stringify(unique), images };
+
+    // Con fechas confirmadas, cada auto sale de acá con la cotización ya resuelta:
+    // dias, precioBase, sunPass, total y la línea 💵 lista para copiar.
+    const dias = startDateTime && endDateTime ? diasDeAlquiler(startDateTime, endDateTime) : null;
+    if (dias == null) return { json: JSON.stringify(unique), images };
+
+    const sunPass = cargoSunPass(dias, destinos);
+    console.log(`[buscar_autos] ${dias} días · SunPass USD ${formatoUSD(sunPass.monto)} (${sunPass.detalle})`);
+
+    const cotizados = unique.map((car) => cotizarAuto(car, dias, sunPass, puertoDeCruceros));
+    return { json: JSON.stringify(cotizados), images };
   }
 
   throw new Error(`Herramienta desconocida: ${toolName}`);
@@ -181,9 +293,12 @@ Si el cliente pide otras opciones o un modelo puntual, volvé a llamar a buscar_
 const FALLBACK_MSG = 'Tuve un problema procesando tu consulta. Escribile directamente a Patricia: https://wa.me/13057731787';
 
 const MODEL = process.env.BOT_MODEL || 'claude-sonnet-5';
-// Sonnet 5 arranca en effort "high" si no se dice nada. Este bot hace loops de
-// tools, así que "medium" alcanza y sale bastante más barato.
-const EFFORT = process.env.BOT_EFFORT || 'medium';
+// "high" es el default de Sonnet 5 y va explícito a propósito. Estuvo un tiempo
+// en "medium" para ahorrar y salió caro: abajo de "high" el modelo usa bastante
+// menos las tools y acota el trabajo a lo literalmente pedido — justo lo que este
+// bot no puede permitirse, porque vive de llamar a buscar_autos y de respetar un
+// formato de card largo. La diferencia real son centavos por conversación.
+const EFFORT = process.env.BOT_EFFORT || 'high';
 
 // Deja UN solo breakpoint de cache en la historia: el último bloque del último
 // mensaje. Los mensajes que llegan de afuera pueden traer content como string
@@ -244,6 +359,9 @@ async function runBot(messages, { channel = 'web' } = {}) {
       system,
       tools: TOOLS,
       messages: currentMessages,
+      // Explícito aunque hoy sea el default: si el default cambiara, apagar el
+      // pensamiento sin querer haría que el modelo use todavía menos las tools.
+      thinking: { type: 'adaptive' },
       output_config: { effort: EFFORT },
     });
 
@@ -321,7 +439,9 @@ app.post('/chat', async (req, res) => {
     if (!res.headersSent) {
       res.json({ response: 'La consulta tardó demasiado. Por favor intentá de nuevo o escribile a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] });
     }
-  }, 45000);
+    // Con thinking activo y hasta 15 vueltas de loop de tools, 45s quedaba corto
+    // y el cliente terminaba leyendo el mensaje de abajo en vez de su cotización.
+  }, 90000);
 
   try {
     const { text, images, quickReplies } = await runBot(messages, { channel: 'web' });
