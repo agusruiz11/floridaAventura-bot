@@ -753,9 +753,9 @@ async function getIgOwnIds() {
   const ids = new Set();
   if (process.env.IG_ACCOUNT_ID) ids.add(process.env.IG_ACCOUNT_ID);
   try {
-    const me = await igGraph('/me', { fields: 'id,instagram_business_account{id,username}' });
+    const me = await igGraph('/me', { fields: 'user_id,username' });
+    if (me.user_id) ids.add(me.user_id);
     if (me.id) ids.add(me.id);
-    if (me.instagram_business_account?.id) ids.add(me.instagram_business_account.id);
   } catch (err) {
     console.warn('[rescate] No pude leer /me:', err.message);
   }

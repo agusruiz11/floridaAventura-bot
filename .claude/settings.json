@@ -29,7 +29,10 @@
       "mcp__meta_developer_tools__devtools_app_review",
       "mcp__meta_developer_tools__devtools_compliance",
       "Bash(node \"/tmp/claude-1000/-media-elmapache-Western-Digital-HDD-Mis-Archivos-Documentos-1--work-1--Posicionarte-proyectos-floridaAventuraBot/b969aefd-93d6-4131-88f2-de288c3d6bda/scratchpad/check-token.mjs\")",
-      "Bash(node --env-file=.env \"/tmp/claude-1000/-media-elmapache-Western-Digital-HDD-Mis-Archivos-Documentos-1--work-1--Posicionarte-proyectos-floridaAventuraBot/b969aefd-93d6-4131-88f2-de288c3d6bda/scratchpad/check-token.mjs\")"
+      "Bash(node --env-file=.env \"/tmp/claude-1000/-media-elmapache-Western-Digital-HDD-Mis-Archivos-Documentos-1--work-1--Posicionarte-proyectos-floridaAventuraBot/b969aefd-93d6-4131-88f2-de288c3d6bda/scratchpad/check-token.mjs\")",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/@anthropic-ai/sdk/package.json'\\).version\\)\")",
+      "Bash(node -e \"import\\('./prompt.js'\\).then\\(m => console.log\\('prompt.js OK ·', m.SYSTEM_PROMPT.length, 'chars'\\)\\)\")",
+      "Bash(sort -u -t'|' -k1,1)"
     ],
     "additionalDirectories": [
       "/media/elmapache/Western Digital HDD/Mis Archivos/Documentos/1. work/1. Posicionarte/proyectos/futbolQueensBot"
