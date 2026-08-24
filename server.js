@@ -288,6 +288,27 @@ Después del último auto, y antes del disclaimer de cotización, agregá una l�
 Nunca digas un número exacto de autos restantes.
 Si el cliente pide otras opciones o un modelo puntual, volvé a llamar a buscar_autos con las mismas fechas y mostrale hasta 3 autos más, sin repetir los que ya le mandaste.`;
 
+// Instrucciones que se suman SOLO cuando el barrido rescata una conversación
+// vieja. El bot no puede tratarla como una charla en vivo: el cliente ya esperó
+// horas, y abrir pidiéndole datos es lo que hace que se caiga el lead.
+const RESCUE_INSTRUCTIONS = `━━━━━━━━━━━━━━━━━━━━━━━ CONTEXTO: RESCATE DE CONVERSACIÓN DEMORADA ━━━━━━━━━━━━━━━━━━━━━━━
+Esta conversación quedó sin respuesta durante horas: el cliente escribió, nadie le contestó, y le estás escribiendo vos ahora. Él ya esperó. Estas reglas tienen prioridad sobre el flujo normal de este canal.
+
+1) NO ARRANQUES PREGUNTANDO
+Tu mensaje tiene que darle algo, no pedirle algo. Con los datos que el cliente ya te dio, avanzá todo lo que puedas: si alcanza para llamar a buscar_autos, buscá y mostrale las opciones con precios. Si ya venían hablando de un auto puntual, retomá desde ahí con información concreta.
+
+2) UNA SOLA PREGUNTA, Y AL FINAL
+Si te falta un dato para cerrar, pedí únicamente el más importante, y recién después de haberle dado la información. Nunca abras con una pregunta ni encadenes varias.
+
+3) OFRECÉ EL ATAJO, PERO NO ESCRIBAS EL LINK
+Junto a esa pregunta, hacele saber que puede cargar los datos él mismo sin esperar tu respuesta, en el formulario de pre-reserva de la web (le pide lugar de entrega y devolución, y fechas y horarios de cada una). NO escribas vos la dirección web: el sistema la agrega automáticamente al final del mensaje. Redactalo de manera que el link que aparece abajo se entienda solo. Ejemplo: "si preferís no esperar, podés cargar los horarios vos mismo en el formulario de pre-reserva".
+
+4) NO REPITAS LA DISCULPA
+El sistema ya antepone una nota disculpándose por la demora. No abras tu mensaje pidiendo perdón otra vez.
+
+5) SI NO TE ALCANZA PARA NADA
+Si lo que dijo el cliente no permite avanzar en absoluto, no improvises un interrogatorio: hacé una sola pregunta puntual y ofrecé el formulario.`;
+
 // ─── Núcleo del bot (compartido entre la web y Instagram) ────────────────────
 
 const FALLBACK_MSG = 'Tuve un problema procesando tu consulta. Escribile directamente a Patricia: https://wa.me/13057731787';
@@ -312,7 +333,7 @@ function marcarUltimoBloque(messages) {
   ultimo.content[ultimo.content.length - 1].cache_control = { type: 'ephemeral' };
 }
 
-async function runBot(messages, { channel = 'web' } = {}) {
+async function runBot(messages, { channel = 'web', rescate = false } = {}) {
   let currentMessages = [...messages];
   let finalText = '';
   let lastSearchImages = [];
@@ -337,7 +358,7 @@ async function runBot(messages, { channel = 'web' } = {}) {
     { type: 'text', text: stable, cache_control: { type: 'ephemeral' } },
     {
       type: 'text',
-      text: `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.`,
+      text: `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.${rescate ? `\n\n${RESCUE_INSTRUCTIONS}` : ''}`,
     },
   ];
 
@@ -657,9 +678,11 @@ async function handleIgMessage(senderId, text) {
 
 // Arma la secuencia de salida de una respuesta del bot. `leadNote` es el texto
 // que se antepone al primer mensaje (nota de "estamos cerrados" o de disculpa
-// por la demora); vacío si no corresponde ninguna.
+// por la demora); vacío si no corresponde ninguna. `trailNote` es el texto que
+// se manda como último mensaje de la ráfaga (el link de pre-reserva); va por
+// código y no por prompt para que salga siempre, sin depender del modelo.
 // Cuantos menos mensajes, mejor: la ráfaga es lo que Meta mira.
-function buildIgOutbound(result, leadNote = '') {
+function buildIgOutbound(result, leadNote = '', trailNote = '') {
   const images = result.images || [];
   const sendImages = (process.env.IG_SEND_IMAGES || 'true') !== 'false';
   const { intro, cars, outro } = splitIntoSegments(result.text);
@@ -674,6 +697,7 @@ function buildIgOutbound(result, leadNote = '') {
     // Caso simple (sin autos o sin fotos): todo el texto y, si hay, las fotos al final
     pushText(leadNote ? `${leadNote}\n\n${result.text}` : result.text);
     if (sendImages) for (const img of images.slice(0, IG_MAX_CARS)) pushImage(img.url);
+    if (trailNote) outbound.push({ text: trailNote });
     return outbound;
   }
 
@@ -695,6 +719,7 @@ function buildIgOutbound(result, leadNote = '') {
   });
 
   if (outro.trim()) pushText(outro);
+  if (trailNote) outbound.push({ text: trailNote });
   return outbound;
 }
 
@@ -728,8 +753,12 @@ const IG_RESCUE_MAX_CONV = Number(process.env.IG_RESCUE_MAX_CONV ?? 15);
 // exactamente el patrón que Meta marca como spam.
 const IG_RESCUE_GAP_MS = Number(process.env.IG_RESCUE_GAP_MS ?? 45000);
 
-const IG_RESCUE_NOTE_FIRST = 'Hola, ¡perdón por la demora en contestarte! Soy el Asistente Comercial de Florida Aventura: puedo responderte ahora mismo tus dudas y cotizarte el alquiler del auto. Mañana durante la mañana también vas a poder hablar directamente con Patricia.';
-const IG_RESCUE_NOTE_FOLLOWUP = '¡Perdón por la demora! Te sigo por acá.';
+const IG_RESCUE_NOTE_FIRST = 'Hola, perdón por la demora. Soy el asistente comercial de Florida Aventura: te respondo ahora mismo y mañana a la mañana te atiende Patricia.';
+const IG_RESCUE_NOTE_FOLLOWUP = 'Perdón por la demora, te sigo por acá.';
+// Cierre fijo del rescate: el link de pre-reserva de la web. Sale como último
+// mensaje de la ráfaga. El prompt de rescate tiene prohibido escribir la URL,
+// así que el link aparece una sola vez y aparece siempre.
+const IG_PREBOOKING_NOTE = 'Si preferís no esperar, podés dejar tu pre-reserva directamente acá: https://www.floridaaventura.com/';
 
 async function igGraph(path, params = {}) {
   const base = process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0';
@@ -858,7 +887,7 @@ async function rescuePendingConversations() {
 
     let result;
     try {
-      result = await runBot(history, { channel: 'instagram' });
+      result = await runBot(history, { channel: 'instagram', rescate: true });
     } catch (err) {
       console.error(`[rescate] ${label}: runBot falló — ${err.message}`);
       summary.salteadas++;
@@ -866,7 +895,11 @@ async function rescuePendingConversations() {
     }
 
     const yaHablamos = history.some((m) => m.role === 'assistant');
-    const outbound = buildIgOutbound(result, yaHablamos ? IG_RESCUE_NOTE_FOLLOWUP : IG_RESCUE_NOTE_FIRST);
+    const outbound = buildIgOutbound(
+      result,
+      yaHablamos ? IG_RESCUE_NOTE_FOLLOWUP : IG_RESCUE_NOTE_FIRST,
+      IG_PREBOOKING_NOTE
+    );
 
     // Dejamos asentado qué se le mandó a cada uno: a la mañana siguiente es el
     // único registro para auditar el barrido sin abrir el inbox uno por uno.
