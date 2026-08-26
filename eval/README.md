@@ -115,5 +115,5 @@ Campos opcionales:
 ## Notas técnicas
 
 - El mock de `buscar_autos` devuelve 3 autos ficticios realistas (Honda HRV, Honda Odyssey, VW Atlas) para que el bot pueda responder naturalmente en los casos que requieren búsqueda.
-- El script usa la misma API, model (`claude-sonnet-4-5`), system prompt y agentic loop que `server.js`.
+- El script usa la misma API, model, system prompt y agentic loop que `server.js`. El modelo sale de `BOT_MODEL` (con el mismo default que el server), así que eval y producción no se pueden desincronizar.
 - Los resultados se acumulan en `eval/results/` — nunca se sobreescriben.

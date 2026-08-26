@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from '../prompt.js';
+import { diasDeAlquiler, cargoSunPass, cotizarAuto } from '../cotizacion.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -40,6 +41,18 @@ const TOOLS = [
           type: 'string',
           description: 'Fecha y hora de fin en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss). Opcional.',
         },
+        destinos: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Destinos fuera de Miami que el cliente dijo que va a visitar (ej: ["Orlando", "Naples"]). ' +
+            'Sirve para calcular el cargo de SunPass. Omitilo si el cliente todavía no mencionó destinos: ' +
+            'en ese caso se usa la tarifa base de Miami. Opcional.',
+        },
+        puertoDeCruceros: {
+          type: 'boolean',
+          description: 'true solo si el cliente dijo que va al Puerto de Cruceros. Opcional.',
+        },
       },
       required: [],
     },
@@ -66,7 +79,7 @@ const MOCK_CARS = [
 
 // ─── Mock tool executor ───────────────────────────────────────────────────────
 
-function executeMockTool(toolName, _toolInput, caseId) {
+function executeMockTool(toolName, toolInput, caseId) {
   if (toolName !== 'buscar_autos') throw new Error(`Herramienta desconocida: ${toolName}`);
 
   if (caseId === 'C5') {
@@ -75,7 +88,18 @@ function executeMockTool(toolName, _toolInput, caseId) {
   if (caseId === 'C6') {
     return JSON.stringify([]);
   }
-  return JSON.stringify(MOCK_CARS);
+
+  // Mismo camino que server.js: con fechas, cada auto sale cotizado (dias,
+  // precioBase, sunPass, total y la línea 💵). Sin fechas, catálogo pelado.
+  // Las funciones son las de cotizacion.js, las mismas que corren en producción:
+  // si el eval cotizara por su cuenta, podría dar PASS con una cuenta que el
+  // server hace distinto — que es justo lo que hay que detectar acá.
+  const { startDateTime, endDateTime, destinos, puertoDeCruceros } = toolInput || {};
+  const dias = startDateTime && endDateTime ? diasDeAlquiler(startDateTime, endDateTime) : null;
+  if (dias == null) return JSON.stringify(MOCK_CARS);
+
+  const sunPass = cargoSunPass(dias, destinos);
+  return JSON.stringify(MOCK_CARS.map((car) => cotizarAuto(car, dias, sunPass, puertoDeCruceros)));
 }
 
 // ─── Keyword check ────────────────────────────────────────────────────────────
@@ -95,8 +119,16 @@ function getAutoResult(passFound, failFound) {
 
 async function runCase(caso) {
   const today = new Date().toISOString().split('T')[0];
-  const systemWithDate =
-    `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.\n\n${SYSTEM_PROMPT}`;
+  // Misma estructura que server.js: el prompt estable primero y con cache_control,
+  // la fecha DESPUES del breakpoint. Si la fecha fuera arriba invalidaria el cache
+  // del prompt entero, que es lo que hace cara cada corrida del eval.
+  const system = [
+    { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+    {
+      type: 'text',
+      text: `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.`,
+    },
+  ];
 
   let currentMessages = [
     ...(caso.historial_previo || []),
@@ -107,9 +139,11 @@ async function runCase(caso) {
 
   while (true) {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-5',
+      // Mismo modelo que produccion (server.js): un eval que corre otro modelo
+      // no dice nada sobre el bot que atiende clientes.
+      model: process.env.BOT_MODEL || 'claude-sonnet-5',
       max_tokens: 2048,
-      system: systemWithDate,
+      system,
       tools: TOOLS,
       messages: currentMessages,
     });

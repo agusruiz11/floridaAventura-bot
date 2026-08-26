@@ -3,6 +3,7 @@ import express from 'express';
 import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from './prompt.js';
+import { diasDeAlquiler, cargoSunPass, formatoUSD, cotizarAuto } from './cotizacion.js';
 
 const app = express();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -84,88 +85,7 @@ function isValidISODate(str) {
 // vienen calculados de la herramienta —passengersAmount, suitcasesAmount— nunca
 // salieron mal, así que la plata pasa por el mismo camino.
 
-// Días de alquiler contando AMBOS extremos: 13 al 18 = 6 días.
-// Compara solo la parte de fecha en UTC para que el horario de retiro/devolución
-// y los cambios de horario de verano no muevan la cuenta.
-function diasDeAlquiler(startDateTime, endDateTime) {
-  const inicio = Date.parse(`${startDateTime.slice(0, 10)}T00:00:00Z`);
-  const fin = Date.parse(`${endDateTime.slice(0, 10)}T00:00:00Z`);
-  if (Number.isNaN(inicio) || Number.isNaN(fin)) return null;
-  const dias = Math.round((fin - inicio) / 86_400_000) + 1;
-  return dias > 0 ? dias : null;
-}
-
-// Cargo fijo por viaje según destino (prompt.js, sección SUNPASS).
-const SUNPASS_POR_DESTINO = {
-  'isla morada': 15,
-  naples: 20,
-  'key west': 20.7,
-  clearwater: 24.7,
-  daytona: 30,
-  'west palm beach': 32.5,
-  orlando: 38,
-};
-
-const CARGO_PUERTO_CRUCEROS = 50;
-
-function normalizarDestino(d) {
-  return String(d)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .trim();
-}
-
-// Sin destinos fuera de Miami: USD 15 por semana o fracción (1-7 → 15, 8-14 → 30…).
-// Con destinos: suma de los cargos fijos de cada uno, como indica el prompt.
-function cargoSunPass(dias, destinos) {
-  const reconocidos = (destinos || [])
-    .map(normalizarDestino)
-    .filter((d) => d in SUNPASS_POR_DESTINO);
-
-  if (!reconocidos.length) {
-    return {
-      monto: Math.ceil(dias / 7) * 15,
-      detalle: 'tarifa base Miami (estimada: puede variar según los destinos del viaje)',
-      esEstimado: true,
-    };
-  }
-
-  const unicos = [...new Set(reconocidos)];
-  return {
-    monto: unicos.reduce((suma, d) => suma + SUNPASS_POR_DESTINO[d], 0),
-    detalle: unicos.join(' + '),
-    esEstimado: false,
-  };
-}
-
-// Los montos con decimales van con coma, como en los ejemplos del prompt (USD 20,70).
-function formatoUSD(n) {
-  const redondeado = Math.round(n * 100) / 100;
-  return Number.isInteger(redondeado) ? String(redondeado) : redondeado.toFixed(2).replace('.', ',');
-}
-
-// Devuelve la línea 💵 ya armada para que el modelo la copie tal cual.
-function cotizarAuto(car, dias, sunPass, puertoDeCruceros) {
-  if (dias == null || typeof car.pricePerDay !== 'number') return car;
-
-  const base = car.pricePerDay * dias;
-  const total = base + sunPass.monto + (puertoDeCruceros ? CARGO_PUERTO_CRUCEROS : 0);
-
-  const partes = [`USD ${formatoUSD(base)} base`, `USD ${formatoUSD(sunPass.monto)} SunPass`];
-  if (puertoDeCruceros) partes.push(`USD ${CARGO_PUERTO_CRUCEROS} Puerto de Cruceros`);
-
-  return {
-    ...car,
-    dias,
-    precioBase: formatoUSD(base),
-    sunPass: formatoUSD(sunPass.monto),
-    sunPassDetalle: sunPass.detalle,
-    total: formatoUSD(total),
-    lineaTotal: `💵 Total: USD ${formatoUSD(total)} (${partes.join(' + ')})`,
-  };
-}
-
+// La cotización (días, SunPass, línea 💵) vive en cotizacion.js — compartida con el eval.
 function extractQuickReplies(text) {
   const match = text.match(/\[QUICK_REPLIES:\s*([^\]]+)\]/);
   if (!match) return { cleanText: text, quickReplies: [] };
@@ -752,6 +672,11 @@ const IG_RESCUE_MAX_CONV = Number(process.env.IG_RESCUE_MAX_CONV ?? 15);
 // Pausa entre conversaciones. Contestarle a 10 personas seguidas en 30s es
 // exactamente el patrón que Meta marca como spam.
 const IG_RESCUE_GAP_MS = Number(process.env.IG_RESCUE_GAP_MS ?? 45000);
+// Cuánto le pedimos a la Graph API por barrido. Si vuelve a aparecer el error 500
+// "Please reduce the amount of data you're asking for", bajá estos dos por env
+// sin necesidad de tocar código.
+const IG_RESCUE_CONV_LIMIT = Number(process.env.IG_RESCUE_CONV_LIMIT ?? 20);
+const IG_RESCUE_MSG_LIMIT = Number(process.env.IG_RESCUE_MSG_LIMIT ?? 12);
 
 const IG_RESCUE_NOTE_FIRST = 'Hola, perdón por la demora. Soy el asistente comercial de Florida Aventura: te respondo ahora mismo y mañana a la mañana te atiende Patricia.';
 const IG_RESCUE_NOTE_FOLLOWUP = 'Perdón por la demora, te sigo por acá.';
@@ -816,8 +741,12 @@ async function rescuePendingConversations() {
   const ownIds = await getIgOwnIds();
   const data = await igGraph('/me/conversations', {
     platform: 'instagram',
-    limit: '50',
-    fields: 'participants,updated_time,messages.limit(30){id,created_time,from,message}',
+    // Meta devuelve 500 "Please reduce the amount of data you're asking for" cuando
+    // el pedido es muy grande: 50 conversaciones x 30 mensajes lo rompía todas las
+    // noches. Con 20 alcanza de sobra — el tope de rescates por barrido es 15 y la
+    // API las devuelve de la más reciente a la más vieja.
+    limit: String(IG_RESCUE_CONV_LIMIT),
+    fields: `participants,updated_time,messages.limit(${IG_RESCUE_MSG_LIMIT}){id,created_time,from,message}`,
   });
   const conversations = data?.data || [];
   console.log(`[rescate] ${conversations.length} conversaciones a revisar${IG_RESCUE_DRY_RUN ? ' (SIMULACRO — no envío nada)' : ''}`);
