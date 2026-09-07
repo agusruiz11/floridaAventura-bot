@@ -227,7 +227,10 @@ Junto a esa pregunta, hacele saber que puede cargar los datos él mismo sin espe
 El sistema ya antepone una nota disculpándose por la demora. No abras tu mensaje pidiendo perdón otra vez.
 
 5) SI NO TE ALCANZA PARA NADA
-Si lo que dijo el cliente no permite avanzar en absoluto, no improvises un interrogatorio: hacé una sola pregunta puntual y ofrecé el formulario.`;
+Si lo que dijo el cliente no permite avanzar en absoluto, no improvises un interrogatorio: hacé una sola pregunta puntual y ofrecé el formulario.
+
+6) SI NO ES UNA CONSULTA, NO CONTESTES
+Si lo que escribió el cliente no tiene que ver con alquilar un auto (una reacción a una historia, un saludo entre conocidos, un "fue sin querer", un mensaje que claramente no iba dirigido a nosotros, un "no me escriban"), respondé únicamente con el texto [[NO_RESCATAR]] y nada más. El sistema no va a mandar nada y Patricia lo ve a la mañana. Un "Hola" solo o una pregunta sobre autos, precios, requisitos o fechas SÍ es una consulta.`;
 
 // ─── Núcleo del bot (compartido entre la web y Instagram) ────────────────────
 
@@ -406,6 +409,12 @@ const SESSION_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas de inactividad
 const seenMids = new Set();   // dedupe de reintentos de Meta
 const ownMids = new Set();    // ids de mensajes que mandó el bot (para no confundirlos con una respuesta humana)
 const HUMAN_HANDOFF_MS = 2 * 60 * 60 * 1000; // si alguien contesta manualmente, el bot se calla en esa charla por 2hs
+// Ventana durante la cual un echo que llega para este destinatario se considera
+// nuestro aunque su mid todavía no esté en ownMids. Meta a veces entrega el echo
+// ANTES de que la llamada de envío devuelva el message_id (pasó el 3/9/2026 con
+// 81 ms de diferencia) y el bot se confundía a sí mismo con Patricia: pausaba la
+// charla 2 hs y cortaba el resto de la secuencia.
+const OWN_SEND_GRACE_MS = 15 * 1000;
 const FALLBACK_COOLDOWN_MS = 15 * 60 * 1000; // no repetir el mensaje de error más de una vez cada 15 min por charla
 
 function getIgSession(senderId) {
@@ -453,6 +462,11 @@ async function igSend(recipientId, message) {
   const base = process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0';
   const token = process.env.IG_ACCESS_TOKEN;
   if (!token) { console.error('[ig] Falta IG_ACCESS_TOKEN — no puedo responder'); return; }
+
+  // Antes del fetch, no después: el echo puede llegar antes que la respuesta.
+  const session = getIgSession(recipientId);
+  session.sendingUntil = Date.now() + OWN_SEND_GRACE_MS;
+  if (message.text) session.lastSentText = message.text;
 
   const res = await fetch(`${base}/me/messages?access_token=${encodeURIComponent(token)}`, {
     method: 'POST',
@@ -677,6 +691,15 @@ const IG_RESCUE_GAP_MS = Number(process.env.IG_RESCUE_GAP_MS ?? 45000);
 // sin necesidad de tocar código.
 const IG_RESCUE_CONV_LIMIT = Number(process.env.IG_RESCUE_CONV_LIMIT ?? 20);
 const IG_RESCUE_MSG_LIMIT = Number(process.env.IG_RESCUE_MSG_LIMIT ?? 12);
+// Mínimo de letras (sin emojis, espacios ni puntuación) que tiene que haber
+// escrito el cliente en toda la charla para que valga la pena rescatarla.
+// "Hola" solo no llega; "Hola, alquilan autos?" sí. Reacciones a historias y
+// toques accidentales eran lo que hacía que Patricia tuviera que pedir disculpas
+// a la mañana ("no mandé ningún mensaje"). Se baja a 4 por env si hace falta.
+const IG_RESCUE_MIN_CHARS = Number(process.env.IG_RESCUE_MIN_CHARS ?? 8);
+// Con esto responde el modelo cuando la charla no es una consulta de alquiler.
+// El código lo detecta y no manda nada.
+const RESCUE_SKIP_RE = /\[\[\s*NO_RESCATAR\s*\]\]/i;
 
 const IG_RESCUE_NOTE_FIRST = 'Hola, perdón por la demora. Soy el asistente comercial de Florida Aventura: te respondo ahora mismo y mañana a la mañana te atiende Patricia.';
 const IG_RESCUE_NOTE_FOLLOWUP = 'Perdón por la demora, te sigo por acá.';
@@ -746,7 +769,9 @@ async function rescuePendingConversations() {
     // noches. Con 20 alcanza de sobra — el tope de rescates por barrido es 15 y la
     // API las devuelve de la más reciente a la más vieja.
     limit: String(IG_RESCUE_CONV_LIMIT),
-    fields: `participants,updated_time,messages.limit(${IG_RESCUE_MSG_LIMIT}){id,created_time,from,message}`,
+    // `story` viene cargado cuando el mensaje es una respuesta o mención a una
+    // historia: eso no es una consulta y no se rescata.
+    fields: `participants,updated_time,messages.limit(${IG_RESCUE_MSG_LIMIT}){id,created_time,from,message,story}`,
   });
   const conversations = data?.data || [];
   console.log(`[rescate] ${conversations.length} conversaciones a revisar${IG_RESCUE_DRY_RUN ? ' (SIMULACRO — no envío nada)' : ''}`);
@@ -805,6 +830,23 @@ async function rescuePendingConversations() {
       continue;
     }
 
+    // Reacciones a historias, emojis sueltos y toques accidentales no son
+    // consultas. Rescatarlos es escribirle a gente que no nos escribió.
+    if (last.story) {
+      console.log(`[rescate] ${label}: lo último es una respuesta a historia — salteo`);
+      summary.salteadas++;
+      continue;
+    }
+    const textoCliente = msgs
+      .filter((m) => !ownIds.has(m.from?.id))
+      .map((m) => (m.message || '').replace(/[\p{Extended_Pictographic}\s\p{P}]/gu, ''))
+      .join('');
+    if (textoCliente.length < IG_RESCUE_MIN_CHARS) {
+      console.log(`[rescate] ${label}: el cliente escribió ${textoCliente.length} letras de texto real (mínimo ${IG_RESCUE_MIN_CHARS}) — salteo`);
+      summary.salteadas++;
+      continue;
+    }
+
     const history = toBotMessages(msgs, ownIds);
     if (!history.length || history[history.length - 1].role !== 'user') {
       console.log(`[rescate] ${label}: no pude reconstruir la charla (¿mensajes sin texto?) — salteo`);
@@ -819,6 +861,15 @@ async function rescuePendingConversations() {
       result = await runBot(history, { channel: 'instagram', rescate: true });
     } catch (err) {
       console.error(`[rescate] ${label}: runBot falló — ${err.message}`);
+      summary.salteadas++;
+      continue;
+    }
+
+    // El modelo ya se daba cuenta cuando la charla no era una consulta ("puede
+    // que haya sido un mensaje automático de nuestro sistema"); solo le faltaba
+    // poder no mandar.
+    if (RESCUE_SKIP_RE.test(result.text)) {
+      console.log(`[rescate] ${label}: el modelo dice que no es una consulta — no mando nada`);
       summary.salteadas++;
       continue;
     }
@@ -988,6 +1039,16 @@ app.post('/webhook', (req, res) => {
           if (msg.mid && ownMids.has(msg.mid)) continue;
           if (recipientId) {
             const session = getIgSession(recipientId);
+            // Echo de un envío nuestro que todavía no devolvió el message_id:
+            // hay un envío en curso para este destinatario, o el texto es
+            // exactamente el último que le mandamos.
+            const enviando = session.sendingUntil && Date.now() < session.sendingUntil;
+            const mismoTexto = !!msg.text && !!session.lastSentText && msg.text.trim() === session.lastSentText.trim();
+            if (enviando || mismoTexto) {
+              if (msg.mid) ownMids.add(msg.mid);
+              console.log(`[webhook] Echo propio para ${recipientId} (llegó antes que el message_id) — lo ignoro`);
+              continue;
+            }
             session.humanUntil = Date.now() + HUMAN_HANDOFF_MS;
             console.log(`[webhook] Respuesta manual detectada para ${recipientId} — pauso el bot ${HUMAN_HANDOFF_MS / 60000} min`);
           }
