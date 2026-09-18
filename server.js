@@ -171,16 +171,41 @@ function isBotActiveNow() {
   return start < end ? (h >= start && h < end) : (h >= start || h < end);
 }
 
+// ¿La oficina de Florida Aventura está abierta en este momento?
+//
+// Esto es independiente de si el bot contesta (isBotActiveNow). Sirve para UNA
+// sola cosa: saber si el bot tiene que aclarar que estamos cerrados. Mientras el
+// bot atendió solo de noche las dos cosas coincidían, pero si se abre la ventana
+// a todo el día el bot no puede seguir diciendo "estamos cerrados" a las 3 de la
+// tarde.
+//
+// Por defecto 0 y 0, que significa "sin horario de oficina configurado": la
+// oficina se considera siempre cerrada y el bot habla exactamente como venía
+// hablando. Para la prueba de turno completo se setean las dos variables en hora
+// Florida. Borrándolas vuelve todo al comportamiento anterior sin tocar código.
+function isOfficeOpenNow() {
+  const start = Number(process.env.IG_OFFICE_START_HOUR ?? 0);
+  const end = Number(process.env.IG_OFFICE_END_HOUR ?? 0);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) return false;
+  const h = floridaHour();
+  return start < end ? (h >= start && h < end) : (h >= start || h < end);
+}
+
 // Nota fija que se antepone al PRIMER mensaje del bot en cada conversación de Instagram.
 // Se agrega por código en handleIgMessage (garantizado, no depende de que la IA la incluya).
+// Solo sale con la oficina cerrada: con la oficina abierta no hay nada que aclarar.
 const IG_CLOSED_NOTE = 'En este momento estamos cerrados, pero en mi rol de Asistente Comercial puedo contestar tus dudas y cotizar el alquiler de tu auto. De todas formas quedate tranquilo que mañana durante la mañana te podés contactar directamente con Patricia.';
 
-// Contexto extra que se le agrega al prompt SOLO en el canal Instagram (horario nocturno)
-const INSTAGRAM_NIGHT_SUFFIX = `
-━━━━━━━━━━━━━━━━━━━━━━━ CANAL INSTAGRAM — HORARIO NOCTURNO ━━━━━━━━━━━━━━━━━━━━━━━
-Estás atendiendo por Instagram fuera del horario comercial: la empresa está cerrada y Patricia atiende personalmente durante el día. Podés responder consultas y cotizar con normalidad. Si el cliente necesita hablar con una persona, aclarale con calidez que Patricia lo va a contactar durante la mañana.
+// Encabezado del bloque de Instagram. Cambia según la oficina esté abierta o
+// cerrada; lo que sigue (las reglas del canal) es igual en los dos casos.
+const IG_HEADER_CERRADO = `━━━━━━━━━━━━━━━━━━━━━━━ CANAL INSTAGRAM — HORARIO NOCTURNO ━━━━━━━━━━━━━━━━━━━━━━━
+Estás atendiendo por Instagram fuera del horario comercial: la empresa está cerrada y Patricia atiende personalmente durante el día. Podés responder consultas y cotizar con normalidad. Si el cliente necesita hablar con una persona, aclarale con calidez que Patricia lo va a contactar durante la mañana.`;
 
-REGLAS DE ESTE CANAL — TIENEN PRIORIDAD SOBRE LAS SECCIONES DE ARRIBA
+const IG_HEADER_ABIERTO = `━━━━━━━━━━━━━━━━━━━━━━━ CANAL INSTAGRAM — HORARIO COMERCIAL ━━━━━━━━━━━━━━━━━━━━━━━
+Estás atendiendo por Instagram dentro del horario comercial. Nunca digas que estamos cerrados ni que Patricia contesta "mañana". Podés responder consultas y cotizar con normalidad. Si el cliente necesita hablar con una persona, pasale el WhatsApp de Patricia (https://wa.me/13057731787) y aclarale que igual puede seguir la charla por acá.`;
+
+// Contexto extra que se le agrega al prompt SOLO en el canal Instagram
+const INSTAGRAM_CHANNEL_RULES = `REGLAS DE ESTE CANAL — TIENEN PRIORIDAD SOBRE LAS SECCIONES DE ARRIBA
 Instagram es un DM: cada bloque de auto se envía como un mensaje separado. Una lista larga se convierte en una ráfaga de mensajes que abruma al cliente. Por eso acá el criterio es "pocas opciones y bien elegidas", no "todas".
 
 1) ANTES DE BUSCAR — CALIFICÁ MEJOR
@@ -207,6 +232,13 @@ Después del último auto, y antes del disclaimer de cotización, agregá una l�
 — "Te dejo las 3 más convenientes para tu viaje. Hay otras opciones disponibles: si buscabas algo distinto (más chico, más grande, otro presupuesto), avisame y te muestro."
 Nunca digas un número exacto de autos restantes.
 Si el cliente pide otras opciones o un modelo puntual, volvé a llamar a buscar_autos con las mismas fechas y mostrale hasta 3 autos más, sin repetir los que ya le mandaste.`;
+
+// El bloque completo del canal Instagram. Con la oficina cerrada (el default)
+// devuelve exactamente el mismo texto que antes, para no invalidar el cache de
+// prompt ni cambiar el comportamiento conocido.
+function instagramSuffix() {
+  return `\n${isOfficeOpenNow() ? IG_HEADER_ABIERTO : IG_HEADER_CERRADO}\n\n${INSTAGRAM_CHANNEL_RULES}`;
+}
 
 // Instrucciones que se suman SOLO cuando el barrido rescata una conversación
 // vieja. El bot no puede tratarla como una charla en vivo: el cliente ya esperó
@@ -274,7 +306,7 @@ async function runBot(messages, { channel = 'web', rescate = false } = {}) {
   // justo lo que impide cachear. Las TOOLS se renderizan antes que el system, así
   // que este breakpoint las cubre también.
   const stable = channel === 'instagram'
-    ? `${SYSTEM_PROMPT}\n\n${INSTAGRAM_NIGHT_SUFFIX}`
+    ? `${SYSTEM_PROMPT}\n\n${instagramSuffix()}`
     : SYSTEM_PROMPT;
 
   const system = [
@@ -605,7 +637,9 @@ async function handleIgMessage(senderId, text) {
   session.messages.push({ role: 'assistant', content: result.text });
   session.updatedAt = Date.now();
 
-  const outbound = buildIgOutbound(result, isFirstReply ? IG_CLOSED_NOTE : '');
+  // La nota de "estamos cerrados" solo cuando la oficina está cerrada. Si el bot
+  // atiende de día (prueba de turno completo), abrir con eso es un papelón.
+  const outbound = buildIgOutbound(result, isFirstReply && !isOfficeOpenNow() ? IG_CLOSED_NOTE : '');
   console.log(`[ig] Enviando ${outbound.length} mensajes (pausa ~${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms)`);
   await igSendSequence(senderId, outbound);
 }
@@ -789,6 +823,15 @@ async function rescuePendingConversations() {
   }
 
   const summary = { revisadas: conversations.length, contestadas: 0, fueraDeVentana: [], salteadas: 0 };
+  // Cada salteo deja asentado su motivo y lo cuenta. Sin esto el resumen dice
+  // "16 salteadas" y no hay forma de saber si Patricia ya las contestó o si un
+  // filtro se está comiendo consultas reales.
+  const motivos = {};
+  const saltear = (motivo, label = 'sin identificar', detalle = '') => {
+    motivos[motivo] = (motivos[motivo] || 0) + 1;
+    summary.salteadas++;
+    console.log(`[rescate] ${label}: salteo por ${motivo}${detalle ? ` (${detalle})` : ''}`);
+  };
 
   for (const conv of conversations) {
     if (summary.contestadas >= IG_RESCUE_MAX_CONV) {
@@ -796,24 +839,28 @@ async function rescuePendingConversations() {
       break;
     }
 
+    // El label se arma antes de cualquier corte para que todos los salteos
+    // digan de qué conversación hablan.
+    const who = conv.participants?.data?.find((p) => !ownIds.has(p.id));
+    const label = who?.username ? `@${who.username}` : (who?.id || 'sin identificar');
+
     const msgs = conv.messages?.data || [];
-    if (!msgs.length) { summary.salteadas++; continue; }
+    if (!msgs.length) { saltear('conversación sin mensajes', label); continue; }
 
     const last = msgs[0]; // el más nuevo
-    if (ownIds.has(last.from?.id)) { summary.salteadas++; continue; } // ya está contestada
+    // Sin volcar el texto del cliente al log: con saber de quién es el último
+    // mensaje y cuándo llegó alcanza para auditar el barrido.
+    console.log(`[rescate] ${label}: ${msgs.length} mensajes, el último es ${ownIds.has(last.from?.id) ? 'nuestro' : 'del cliente'} (${last.created_time})`);
+    if (ownIds.has(last.from?.id)) { saltear('ya contestada', label); continue; }
 
     const senderId = last.from?.id;
-    if (!senderId) { summary.salteadas++; continue; }
-
-    const who = conv.participants?.data?.find((p) => !ownIds.has(p.id));
-    const label = who?.username ? `@${who.username}` : senderId;
+    if (!senderId) { saltear('el último mensaje no trae remitente', label); continue; }
 
     const ageMs = Date.now() - Date.parse(last.created_time);
-    if (!Number.isFinite(ageMs)) { summary.salteadas++; continue; }
+    if (!Number.isFinite(ageMs)) { saltear('fecha ilegible', label, last.created_time); continue; }
 
     if (ageMs < IG_RESCUE_MIN_AGE_MIN * 60000) {
-      console.log(`[rescate] ${label}: sin respuesta hace ${Math.round(ageMs / 60000)} min — todavía es de Patricia, salteo`);
-      summary.salteadas++;
+      saltear('muy reciente, todavía es de Patricia', label, `${Math.round(ageMs / 60000)} min`);
       continue;
     }
     if (ageMs > IG_RESCUE_MAX_AGE_H * 3600000) {
@@ -825,16 +872,14 @@ async function rescuePendingConversations() {
 
     const session = getIgSession(senderId);
     if (session.humanUntil && Date.now() < session.humanUntil) {
-      console.log(`[rescate] ${label}: handoff humano activo — no me meto`);
-      summary.salteadas++;
+      saltear('handoff humano activo', label, `quedan ${Math.round((session.humanUntil - Date.now()) / 60000)} min`);
       continue;
     }
 
     // Reacciones a historias, emojis sueltos y toques accidentales no son
     // consultas. Rescatarlos es escribirle a gente que no nos escribió.
     if (last.story) {
-      console.log(`[rescate] ${label}: lo último es una respuesta a historia — salteo`);
-      summary.salteadas++;
+      saltear('respuesta a historia', label);
       continue;
     }
     const textoCliente = msgs
@@ -842,15 +887,13 @@ async function rescuePendingConversations() {
       .map((m) => (m.message || '').replace(/[\p{Extended_Pictographic}\s\p{P}]/gu, ''))
       .join('');
     if (textoCliente.length < IG_RESCUE_MIN_CHARS) {
-      console.log(`[rescate] ${label}: el cliente escribió ${textoCliente.length} letras de texto real (mínimo ${IG_RESCUE_MIN_CHARS}) — salteo`);
-      summary.salteadas++;
+      saltear('poco texto real', label, `${textoCliente.length} de ${IG_RESCUE_MIN_CHARS} letras`);
       continue;
     }
 
     const history = toBotMessages(msgs, ownIds);
     if (!history.length || history[history.length - 1].role !== 'user') {
-      console.log(`[rescate] ${label}: no pude reconstruir la charla (¿mensajes sin texto?) — salteo`);
-      summary.salteadas++;
+      saltear('no pude reconstruir la charla', label, '¿mensajes sin texto?');
       continue;
     }
 
@@ -861,7 +904,7 @@ async function rescuePendingConversations() {
       result = await runBot(history, { channel: 'instagram', rescate: true });
     } catch (err) {
       console.error(`[rescate] ${label}: runBot falló — ${err.message}`);
-      summary.salteadas++;
+      saltear('runBot falló', label, err.message);
       continue;
     }
 
@@ -869,8 +912,7 @@ async function rescuePendingConversations() {
     // que haya sido un mensaje automático de nuestro sistema"); solo le faltaba
     // poder no mandar.
     if (RESCUE_SKIP_RE.test(result.text)) {
-      console.log(`[rescate] ${label}: el modelo dice que no es una consulta — no mando nada`);
-      summary.salteadas++;
+      saltear('el modelo la marcó como no consulta', label);
       continue;
     }
 
@@ -898,7 +940,8 @@ async function rescuePendingConversations() {
     await sleep(IG_RESCUE_GAP_MS);
   }
 
-  console.log(`[rescate] Listo — ${summary.contestadas} contestadas, ${summary.salteadas} salteadas, ${summary.fueraDeVentana.length} fuera de ventana`);
+  const detalleSalteos = Object.entries(motivos).map(([m, n]) => `${n} ${m}`).join(' · ') || 'ninguna';
+  console.log(`[rescate] Listo: ${summary.contestadas} contestadas, ${summary.salteadas} salteadas (${detalleSalteos}), ${summary.fueraDeVentana.length} fuera de ventana`);
   if (summary.fueraDeVentana.length) {
     console.log(`[rescate] Para Patricia (fuera de las 24hs, hay que contestarlos a mano): ${summary.fueraDeVentana.map((c) => `${c.label} (${c.horas}hs)`).join(', ')}`);
   }
@@ -1091,6 +1134,13 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Florida Aventura Bot corriendo en http://localhost:${PORT}`);
   console.log(`[ig] Canal Instagram: ${(process.env.IG_ENABLED || 'true') === 'false' ? 'APAGADO' : `activo ${process.env.IG_BOT_START_HOUR ?? 23}:00–${process.env.IG_BOT_END_HOUR ?? 7}:00 (${IG_TZ})`}`);
+  // Deja escrito en qué modo arrancó, para confirmar de un vistazo si la prueba
+  // de turno completo está encendida o si volvimos al turno nocturno.
+  {
+    const oStart = Number(process.env.IG_OFFICE_START_HOUR ?? 0);
+    const oEnd = Number(process.env.IG_OFFICE_END_HOUR ?? 0);
+    console.log(`[ig] Horario de oficina: ${oStart === oEnd ? 'sin configurar — el bot habla siempre como fuera de hora (modo de siempre)' : `${oStart}:00–${oEnd}:00 (${IG_TZ}) — dentro de esa franja no dice "estamos cerrados"`}`);
+  }
   console.log(`[ig] Ritmo: pausa ${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms · typing ${IG_TYPING ? 'on' : 'off'} · máx ${IG_MAX_CARS} autos por respuesta`);
 
   logTokenStatus();
