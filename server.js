@@ -77,6 +77,35 @@ function isValidISODate(str) {
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(str) && !isNaN(Date.parse(str));
 }
 
+// Fecha de hoy en Florida como "YYYY-MM-DD", para comparar con la parte de fecha
+// de startDateTime (que viene sin zona horaria, en hora local de Florida).
+function floridaTodayISO() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.FA_TIMEZONE || 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
+// Rechaza consultas con fecha de retiro ya pasada o devolución anterior al retiro.
+// El 22/9/2026 el modelo consultó "del 23 al 31 de enero" como 2026-01-23 (ya
+// pasado) en vez de 2027-01-23; la API devolvió 0 autos y el bot le dijo al
+// cliente que no había disponibilidad con toda la flota libre. La regla del
+// prompt ("si la fecha ya pasó, usá el año siguiente") no alcanza: acá se corta
+// antes de consultar y se le pide al modelo que confirme el año con el cliente.
+// Devuelve null si las fechas son válidas, o el texto del error.
+function errorFechasPasadas(startDateTime, endDateTime) {
+  const hoy = floridaTodayISO();
+  const inicio = startDateTime.slice(0, 10);
+  const fin = endDateTime.slice(0, 10);
+  if (inicio < hoy) {
+    return `La fecha de retiro ${inicio} ya pasó (hoy es ${hoy}). Probablemente el cliente se refiere al año siguiente: confirmá con él el año exacto y volvé a buscar. No le digas que no hay disponibilidad.`;
+  }
+  if (fin < inicio) {
+    return `La fecha de devolución ${fin} es anterior a la de retiro ${inicio}. Confirmá las fechas con el cliente y volvé a buscar.`;
+  }
+  return null;
+}
+
 // ─── Cotización (se calcula acá, NO en el prompt) ────────────────────────────
 //
 // Antes el modelo sacaba de cabeza los días, la base, el SunPass y la suma. Eso
@@ -103,6 +132,14 @@ async function executeTool(toolName, toolInput) {
     }
     if (endDateTime && !isValidISODate(endDateTime)) {
       return { json: JSON.stringify({ error: 'endDateTime inválido. Pedile al cliente que confirme las fechas exactas.' }), images: [] };
+    }
+
+    if (startDateTime && endDateTime) {
+      const errorFechas = errorFechasPasadas(startDateTime, endDateTime);
+      if (errorFechas) {
+        console.warn(`[buscar_autos] Fechas rechazadas: ${startDateTime} → ${endDateTime} — ${errorFechas}`);
+        return { json: JSON.stringify({ error: errorFechas }), images: [] };
+      }
     }
 
     let data;
