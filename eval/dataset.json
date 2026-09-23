@@ -79,32 +79,31 @@
     "id": "B1",
     "categoria": "B - Fechas y cálculo",
     "input": "Quiero alquilar del 17 al 20 de mayo",
-    "debe_hacer": "Confirmar 4 días y preguntar horarios de retiro y devolución",
-    "no_debe_hacer": "Cotizar o mostrar autos sin preguntar horarios",
+    "debe_hacer": "Buscar autos sin frenar a preguntar horarios, cotizar con horarios estimados (retiro 07:00, devolución 20:00) = 4 días y aclarar que usó horarios estimados",
+    "no_debe_hacer": "Frenar la cotización para preguntar la hora, o mencionar el mínimo de 4 días",
     "keywords_pass": [
       "4 días",
-      "hora",
-      "horario",
-      "¿a qué hora"
+      "estimad",
+      "07:00"
     ],
     "keywords_fail": [
-      "USD",
-      "cotiz"
+      "mínimo",
+      "¿a qué hora"
     ]
   },
   {
     "id": "B2",
     "categoria": "B - Fechas y cálculo",
     "input": "Del 17 al 19 de mayo",
-    "debe_hacer": "Informar mínimo de 4 días y derivar a Patricia",
-    "no_debe_hacer": "Buscar autos o cotizar",
+    "debe_hacer": "Con horarios estimados son 3 días: informar que el mínimo es de 4 días, sin excepciones y sin derivar a Patricia",
+    "no_debe_hacer": "Mostrar autos, cotizar o pasar el WhatsApp de Patricia",
     "keywords_pass": [
-      "mínimo",
-      "4 días"
+      "4 días",
+      "mínimo"
     ],
     "keywords_fail": [
-      "cotiz",
-      "tenemos disponible",
+      "wa.me",
+      "USD",
       "te muestro los autos"
     ]
   },
@@ -112,10 +111,9 @@
     "id": "B3",
     "categoria": "B - Fechas y cálculo",
     "input": "Del 17 al 20 de mayo",
-    "debe_hacer": "Usar el año 2026 (inyectado en el system), confirmar 4 días",
-    "no_debe_hacer": "Asumir el año 2025 (ya pasó)",
+    "debe_hacer": "Usar el año 2026 o 2027 según corresponda a la fecha inyectada, y cotizar 4 días con horarios estimados",
+    "no_debe_hacer": "Usar un año que ya pasó",
     "keywords_pass": [
-      "2026",
       "4 días"
     ],
     "keywords_fail": [
@@ -126,44 +124,36 @@
     "id": "B4",
     "categoria": "B - Fechas y cálculo",
     "input": "Llego el martes a las 23hs y devuelvo el viernes a las 18hs",
-    "debe_hacer": "O bien calcular 4 días de calendario (martes a viernes, ambos extremos), o bien pedir que confirme de qué semana habla — \"el martes\" es ambiguo y preguntar es preferible a asumir. Lo que no puede hacer es descontar días por las horas.",
-    "no_debe_hacer": "Calcular por horas y decir que son menos de 4 días",
+    "debe_hacer": "Martes 23:00 a viernes 18:00 son 2 días y 19 horas = 3 días cobrados: informar el mínimo de 4 días. Si no queda claro de qué semana habla, puede preguntar las fechas exactas",
+    "no_debe_hacer": "Cotizar como si cumpliera el mínimo",
     "keywords_pass": [
-      "4 días",
-      "qué semana",
-      "confirmar",
-      "qué fecha"
+      "mínimo",
+      "qué fecha",
+      "qué semana"
     ],
     "keywords_fail": [
-      "menos de 4",
-      "3 días",
-      "no cumple",
-      "96 horas"
+      "USD"
     ]
   },
   {
     "id": "B5",
     "categoria": "B - Fechas y cálculo",
     "input": "Quiero alquilar del 10 al 20 de julio",
-    "debe_hacer": "Preguntar hora de retiro y devolución antes de cotizar",
-    "no_debe_hacer": "Cotizar directamente sin preguntar horarios",
+    "debe_hacer": "Cotizar sin preguntar horarios, con horarios estimados: 10 07:00 a 20 20:00 = 11 días, y aclararlo",
+    "no_debe_hacer": "Frenar la cotización para preguntar horarios",
     "keywords_pass": [
-      "hora",
-      "¿a qué hora",
-      "horario",
       "11 días",
-      "Orlando"
+      "estimad"
     ],
     "keywords_fail": [
-      "USD",
-      "cotiz"
+      "¿a qué hora"
     ]
   },
   {
     "id": "B6",
     "categoria": "B - Fechas y cálculo",
     "input": "Del 13 al 27 de junio",
-    "debe_hacer": "Confirmar correctamente 15 días",
+    "debe_hacer": "Con horarios estimados, 13 07:00 a 27 20:00 = 15 días",
     "no_debe_hacer": "Calcular mal la cantidad de días",
     "keywords_pass": [
       "15 días"
@@ -178,16 +168,13 @@
     "id": "B7",
     "categoria": "B - Fechas y cálculo",
     "input": "Del 18 al 24 de marzo",
-    "debe_hacer": "Confirmar 7 días y avanzar sin mencionar el mínimo de 4 días",
-    "no_debe_hacer": "Mencionar el mínimo de 4 días cuando el período ya lo supera ampliamente",
+    "debe_hacer": "Con horarios estimados, 18 07:00 a 24 20:00 = 7 días; avanzar sin mencionar el mínimo",
+    "no_debe_hacer": "Mencionar el mínimo de 4 días cuando el período lo supera",
     "keywords_pass": [
-      "7 días",
-      "hora",
-      "horario"
+      "7 días"
     ],
     "keywords_fail": [
       "mínimo",
-      "4 días",
       "cumplimos"
     ]
   },
@@ -1029,8 +1016,8 @@
     "id": "B8",
     "categoria": "B - Fechas y cálculo",
     "input": "Del 1 al 11 de septiembre, retiro 7 de la mañana y devuelvo 8 de la noche. Somos 5 con 3 valijas y nos quedamos en Miami.",
-    "debe_hacer": "Cotizar 11 días (calendario, ambos extremos incluidos) y mostrar el total con el SunPass de 2 semanas o fracción (USD 30) sumado. La línea 💰 tiene que mostrar la multiplicación por días.",
-    "no_debe_hacer": "Contar 10 días, usar la palabra 'base' para el importe del alquiler, o mostrar un total sin SunPass",
+    "debe_hacer": "1 07:00 a 11 20:00 = 10 días y 13 horas, pasa la tolerancia de 2 horas: cotizar 11 días con SunPass de 2 semanas o fracción (USD 30)",
+    "no_debe_hacer": "Contar 10 días, usar la palabra 'base' o mostrar un total sin SunPass",
     "keywords_pass": [
       "11 días",
       "USD 30 SunPass"
@@ -1046,16 +1033,15 @@
     "id": "B9",
     "categoria": "B - Fechas y cálculo",
     "input": "Del 10 al 14 de julio, retiro 10:00 y devolución 10:00. Vamos a Orlando, somos 4 con 2 valijas.",
-    "debe_hacer": "Cotizar 5 días y pasarle destinos:['Orlando'] a buscar_autos, de modo que el SunPass sea USD 38 y no la tarifa base de Miami",
-    "no_debe_hacer": "Usar la tarifa base de USD 15 habiendo mencionado Orlando, o contar 4 días",
+    "debe_hacer": "10 10:00 a 14 10:00 = 4 días justos; pasarle destinos:['Orlando'] para que el SunPass sea USD 38",
+    "no_debe_hacer": "Contar 5 días o usar la tarifa de Miami habiendo mencionado Orlando",
     "keywords_pass": [
-      "5 días",
+      "4 días",
       "USD 38 SunPass"
     ],
     "keywords_fail": [
       " base ",
-      "4 días",
-      "6 días",
+      "5 días",
       "USD 15 SunPass"
     ]
   },
@@ -1063,15 +1049,55 @@
     "id": "B10",
     "categoria": "B - Fechas y cálculo",
     "input": "Retiro el 3 de octubre a las 22:00 y lo devuelvo el 6 de octubre a las 09:00. Somos 2 con 2 valijas, solo Miami.",
-    "debe_hacer": "Cobrar 4 días: los horarios no cambian la cuenta, se cuentan los días de calendario (3, 4, 5 y 6)",
-    "no_debe_hacer": "Descontar días por las horas de uso reales (son ~2 días y 11 horas) y cotizar 2 o 3 días",
+    "debe_hacer": "3 oct 22:00 a 6 oct 09:00 son 2 días y 11 horas = 3 días cobrados: informar el mínimo de 4 días sin cotizar ni derivar",
+    "no_debe_hacer": "Cotizar 4 días o pasar el WhatsApp",
     "keywords_pass": [
+      "mínimo",
       "4 días"
     ],
     "keywords_fail": [
-      " base ",
-      "3 días",
-      "2 días"
+      "USD",
+      "wa.me"
+    ]
+  },
+  {
+    "id": "B11",
+    "categoria": "B - Fechas y cálculo",
+    "input": "Retiro el 20 de noviembre a las 16:00 y devuelvo el 27 a las 16:00. Somos 2 con 2 valijas, solo Miami.",
+    "debe_hacer": "Cotizar 7 días (bloques de 24 horas)",
+    "no_debe_hacer": "Cotizar 8 días",
+    "keywords_pass": [
+      "7 días"
+    ],
+    "keywords_fail": [
+      "8 días"
+    ]
+  },
+  {
+    "id": "B12",
+    "categoria": "B - Fechas y cálculo",
+    "input": "Retiro el 20 de noviembre a las 16:00 y devuelvo el 27 a las 19:00. Somos 2 con 2 valijas, solo Miami.",
+    "debe_hacer": "Cotizar 8 días: 3 horas pasa la tolerancia de 2 horas",
+    "no_debe_hacer": "Cotizar 7 días",
+    "keywords_pass": [
+      "8 días"
+    ],
+    "keywords_fail": [
+      "7 días"
+    ]
+  },
+  {
+    "id": "B13",
+    "categoria": "B - Fechas y cálculo",
+    "input": "Del 1 al 20 de noviembre, retiro 10:00 y devuelvo 10:00. Somos 3 con 3 valijas, solo Miami.",
+    "debe_hacer": "Cotizar 19 días con el 10% de descuento sobre el alquiler ya aplicado y mencionarlo",
+    "no_debe_hacer": "Aplicar el descuento al SunPass u omitir mencionarlo",
+    "keywords_pass": [
+      "19 días",
+      "10% de descuento"
+    ],
+    "keywords_fail": [
+      " base "
     ]
   },
   {

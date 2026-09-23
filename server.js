@@ -3,7 +3,7 @@ import express from 'express';
 import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from './prompt.js';
-import { diasDeAlquiler, cargoSunPass, formatoUSD, cotizarAuto } from './cotizacion.js';
+import { cargoSunPass, formatoUSD, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, MINIMO_DIAS } from './cotizacion.js';
 
 const app = express();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -35,11 +35,15 @@ const TOOLS = [
       properties: {
         startDateTime: {
           type: 'string',
-          description: 'Fecha y hora de inicio en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss). Opcional.',
+          description:
+            'Fecha y hora de retiro en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss). Si el cliente no dio la hora, ' +
+            'mandá solo la fecha (YYYY-MM-DD): se asume retiro a las 07:00. Opcional.',
         },
         endDateTime: {
           type: 'string',
-          description: 'Fecha y hora de fin en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss). Opcional.',
+          description:
+            'Fecha y hora de devolución en formato ISO 8601 (YYYY-MM-DDTHH:mm:ss). Si el cliente no dio la hora, ' +
+            'mandá solo la fecha (YYYY-MM-DD): se asume devolución a las 20:00. Opcional.',
         },
         destinos: {
           type: 'array',
@@ -75,6 +79,11 @@ async function faFetch(path) {
 
 function isValidISODate(str) {
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(str) && !isNaN(Date.parse(str));
+}
+
+// Acepta fecha con hora o solo la fecha (cuando el cliente no dio horario).
+function isValidFechaEntrada(str) {
+  return typeof str === 'string' && (isValidISODate(str) || isValidISODate(`${str}T00:00:00`));
 }
 
 // Fecha de hoy en Florida como "YYYY-MM-DD", para comparar con la parte de fecha
@@ -125,26 +134,40 @@ function extractQuickReplies(text) {
 
 async function executeTool(toolName, toolInput) {
   if (toolName === 'buscar_autos') {
-    const { startDateTime, endDateTime, destinos, puertoDeCruceros } = toolInput;
+    const { destinos, puertoDeCruceros } = toolInput;
+    let { startDateTime, endDateTime } = toolInput;
 
-    if (startDateTime && !isValidISODate(startDateTime)) {
+    if (startDateTime && !isValidFechaEntrada(startDateTime)) {
       return { json: JSON.stringify({ error: 'startDateTime inválido. Pedile al cliente que confirme las fechas exactas.' }), images: [] };
     }
-    if (endDateTime && !isValidISODate(endDateTime)) {
+    if (endDateTime && !isValidFechaEntrada(endDateTime)) {
       return { json: JSON.stringify({ error: 'endDateTime inválido. Pedile al cliente que confirme las fechas exactas.' }), images: [] };
     }
 
+    // Con fechas: completa las horas que falten (07:00 / 20:00), valida que no
+    // estén en el pasado y calcula los días antes de consultar la API.
+    let rango = null;
     if (startDateTime && endDateTime) {
+      rango = prepararRango(startDateTime, endDateTime);
+      ({ startDateTime, endDateTime } = rango);
+
       const errorFechas = errorFechasPasadas(startDateTime, endDateTime);
       if (errorFechas) {
         console.warn(`[buscar_autos] Fechas rechazadas: ${startDateTime} → ${endDateTime} — ${errorFechas}`);
         return { json: JSON.stringify({ error: errorFechas }), images: [] };
       }
+      if (rango.dias == null) {
+        return { json: JSON.stringify({ error: 'La devolución tiene que ser posterior al retiro. Confirmá fechas y horarios con el cliente.' }), images: [] };
+      }
+      if (rango.dias < MINIMO_DIAS) {
+        console.log(`[buscar_autos] Menos del mínimo: ${startDateTime} → ${endDateTime} = ${rango.dias} días${rango.horariosEstimados ? ' (horarios estimados)' : ''}`);
+        return { json: JSON.stringify(respuestaMinimoNoCumplido(rango)), images: [] };
+      }
     }
 
     let data;
-    if (startDateTime && endDateTime) {
-      console.log(`[buscar_autos] Consultando disponibilidad: ${startDateTime} → ${endDateTime}`);
+    if (rango) {
+      console.log(`[buscar_autos] Consultando disponibilidad: ${startDateTime} → ${endDateTime}${rango.horariosEstimados ? ' (horarios estimados)' : ''}`);
       const params = new URLSearchParams({ startDateTime, endDateTime });
       data = await faFetch(`/availability?${params}`);
       console.log(`[buscar_autos] Autos disponibles: ${data.length}`);
@@ -165,14 +188,20 @@ async function executeTool(toolName, toolInput) {
     const unique = [...new Map(data.map((d) => [d.name, d])).values()];
 
     // Con fechas confirmadas, cada auto sale de acá con la cotización ya resuelta:
-    // dias, precioBase, sunPass, total y la línea 💵 lista para copiar.
-    const dias = startDateTime && endDateTime ? diasDeAlquiler(startDateTime, endDateTime) : null;
-    if (dias == null) return { json: JSON.stringify(unique), images };
+    // dias, precioBase, sunPass, total y la línea 💵 lista para copiar, más los
+    // horarios usados y si fueron estimados.
+    if (!rango) return { json: JSON.stringify(unique), images };
+    const { dias } = rango;
 
     const sunPass = cargoSunPass(dias, destinos);
     console.log(`[buscar_autos] ${dias} días · SunPass USD ${formatoUSD(sunPass.monto)} (${sunPass.detalle})`);
 
-    const cotizados = unique.map((car) => cotizarAuto(car, dias, sunPass, puertoDeCruceros));
+    const cotizados = unique.map((car) => ({
+      ...cotizarAuto(car, dias, sunPass, puertoDeCruceros),
+      retiro: rango.retiro,
+      devolucion: rango.devolucion,
+      horariosEstimados: rango.horariosEstimados,
+    }));
     return { json: JSON.stringify(cotizados), images };
   }
 
@@ -198,12 +227,22 @@ function floridaHour() {
   return Number(parts.find((p) => p.type === 'hour')?.value ?? '0') % 24;
 }
 
+// Horarios del canal Instagram, en hora de Florida. Desde el 23/9/2026 el bot
+// responde las 24 horas (pedido de Patricia) y, sin un horario de oficina
+// definido, la oficina se toma como abierta todo el día: así el bot nunca dice
+// "estamos cerrados". Para volver al turno nocturno sin tocar código:
+// IG_BOT_START_HOUR=23, IG_BOT_END_HOUR=7, IG_OFFICE_START_HOUR=0, IG_OFFICE_END_HOUR=0.
+const IG_BOT_START_HOUR = Number(process.env.IG_BOT_START_HOUR ?? 0);
+const IG_BOT_END_HOUR = Number(process.env.IG_BOT_END_HOUR ?? 24);
+const IG_OFFICE_START_HOUR = Number(process.env.IG_OFFICE_START_HOUR ?? 0);
+const IG_OFFICE_END_HOUR = Number(process.env.IG_OFFICE_END_HOUR ?? 24);
+
 // ¿El bot de Instagram tiene que contestar en este momento?
-// Por defecto activo de 23:00 a 07:00 (franja que cruza la medianoche).
+// Por defecto las 24 horas (0 a 24).
 function isBotActiveNow() {
   if ((process.env.IG_ENABLED || 'true') === 'false') return false;
-  const start = Number(process.env.IG_BOT_START_HOUR ?? 23);
-  const end = Number(process.env.IG_BOT_END_HOUR ?? 7);
+  const start = IG_BOT_START_HOUR;
+  const end = IG_BOT_END_HOUR;
   const h = floridaHour();
   return start < end ? (h >= start && h < end) : (h >= start || h < end);
 }
@@ -221,8 +260,8 @@ function isBotActiveNow() {
 // hablando. Para la prueba de turno completo se setean las dos variables en hora
 // Florida. Borrándolas vuelve todo al comportamiento anterior sin tocar código.
 function isOfficeOpenNow() {
-  const start = Number(process.env.IG_OFFICE_START_HOUR ?? 0);
-  const end = Number(process.env.IG_OFFICE_END_HOUR ?? 0);
+  const start = IG_OFFICE_START_HOUR;
+  const end = IG_OFFICE_END_HOUR;
   if (!Number.isFinite(start) || !Number.isFinite(end) || start === end) return false;
   const h = floridaHour();
   return start < end ? (h >= start && h < end) : (h >= start || h < end);
@@ -246,7 +285,7 @@ const INSTAGRAM_CHANNEL_RULES = `REGLAS DE ESTE CANAL — TIENEN PRIORIDAD SOBRE
 Instagram es un DM: cada bloque de auto se envía como un mensaje separado. Una lista larga se convierte en una ráfaga de mensajes que abruma al cliente. Por eso acá el criterio es "pocas opciones y bien elegidas", no "todas".
 
 1) ANTES DE BUSCAR — CALIFICÁ MEJOR
-Además de las fechas y los horarios de retiro/devolución, en este canal necesitás dos datos más antes de llamar a buscar_autos:
+Además de las fechas, en este canal necesitás dos datos más antes de llamar a buscar_autos (los horarios no hacen falta: si el cliente no los dio, se cotiza con los horarios estimados):
 — Cuántas valijas llevan. Es el factor que realmente limita qué auto sirve.
 — Qué destinos piensan visitar. Define el cargo de SunPass y si les conviene un auto más amplio.
 Preguntalos de forma natural y en un mismo mensaje, respetando el máximo de 2 preguntas por mensaje. Ejemplo: "¡Buenísimo! ¿Cuántas valijas llevan y qué lugares tienen pensado visitar? Con eso te muestro las opciones que mejor les van."
@@ -773,6 +812,9 @@ const IG_RESCUE_MIN_CHARS = Number(process.env.IG_RESCUE_MIN_CHARS ?? 8);
 const RESCUE_SKIP_RE = /\[\[\s*NO_RESCATAR\s*\]\]/i;
 
 const IG_RESCUE_NOTE_FIRST = 'Hola, perdón por la demora. Soy el asistente comercial de Florida Aventura: te respondo ahora mismo y mañana a la mañana te atiende Patricia.';
+// Con la oficina abierta (el default desde que el bot responde 24 horas) no se
+// promete "mañana a la mañana": el cliente puede seguir acá o escribirle a Patricia.
+const IG_RESCUE_NOTE_FIRST_ABIERTO = 'Hola, perdón por la demora. Soy el asistente comercial de Florida Aventura y te respondo ahora mismo.';
 const IG_RESCUE_NOTE_FOLLOWUP = 'Perdón por la demora, te sigo por acá.';
 // Cierre fijo del rescate: el link de pre-reserva de la web. Sale como último
 // mensaje de la ráfaga. El prompt de rescate tiene prohibido escribir la URL,
@@ -956,7 +998,7 @@ async function rescuePendingConversations() {
     const yaHablamos = history.some((m) => m.role === 'assistant');
     const outbound = buildIgOutbound(
       result,
-      yaHablamos ? IG_RESCUE_NOTE_FOLLOWUP : IG_RESCUE_NOTE_FIRST,
+      yaHablamos ? IG_RESCUE_NOTE_FOLLOWUP : (isOfficeOpenNow() ? IG_RESCUE_NOTE_FIRST_ABIERTO : IG_RESCUE_NOTE_FIRST),
       IG_PREBOOKING_NOTE
     );
 
@@ -1170,12 +1212,12 @@ app.post('/webhook', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Florida Aventura Bot corriendo en http://localhost:${PORT}`);
-  console.log(`[ig] Canal Instagram: ${(process.env.IG_ENABLED || 'true') === 'false' ? 'APAGADO' : `activo ${process.env.IG_BOT_START_HOUR ?? 23}:00–${process.env.IG_BOT_END_HOUR ?? 7}:00 (${IG_TZ})`}`);
+  console.log(`[ig] Canal Instagram: ${(process.env.IG_ENABLED || 'true') === 'false' ? 'APAGADO' : `activo ${IG_BOT_START_HOUR}:00–${IG_BOT_END_HOUR}:00 (${IG_TZ})`}`);
   // Deja escrito en qué modo arrancó, para confirmar de un vistazo si la prueba
   // de turno completo está encendida o si volvimos al turno nocturno.
   {
-    const oStart = Number(process.env.IG_OFFICE_START_HOUR ?? 0);
-    const oEnd = Number(process.env.IG_OFFICE_END_HOUR ?? 0);
+    const oStart = IG_OFFICE_START_HOUR;
+    const oEnd = IG_OFFICE_END_HOUR;
     console.log(`[ig] Horario de oficina: ${oStart === oEnd ? 'sin configurar — el bot habla siempre como fuera de hora (modo de siempre)' : `${oStart}:00–${oEnd}:00 (${IG_TZ}) — dentro de esa franja no dice "estamos cerrados"`}`);
   }
   console.log(`[ig] Ritmo: pausa ${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms · typing ${IG_TYPING ? 'on' : 'off'} · máx ${IG_MAX_CARS} autos por respuesta`);
@@ -1184,7 +1226,7 @@ app.listen(PORT, () => {
   setInterval(logTokenStatus, 24 * 60 * 60 * 1000);
 
   if (IG_RESCUE_ENABLED) {
-    console.log(`[rescate] Activo: primer barrido al arrancar el turno (${process.env.IG_BOT_START_HOUR ?? 23}:00) y después cada ${IG_RESCUE_INTERVAL_MIN} min · rescata entre ${IG_RESCUE_MIN_AGE_MIN} min y ${IG_RESCUE_MAX_AGE_H}hs de antigüedad · máx ${IG_RESCUE_MAX_CONV} por barrido${IG_RESCUE_DRY_RUN ? ' · SIMULACRO (no envía)' : ''}`);
+    console.log(`[rescate] Activo: primer barrido al arrancar el turno (${IG_BOT_START_HOUR}:00) y después cada ${IG_RESCUE_INTERVAL_MIN} min · rescata entre ${IG_RESCUE_MIN_AGE_MIN} min y ${IG_RESCUE_MAX_AGE_H}hs de antigüedad · máx ${IG_RESCUE_MAX_CONV} por barrido${IG_RESCUE_DRY_RUN ? ' · SIMULACRO (no envía)' : ''}`);
     setInterval(() => { rescueTick(); }, RESCUE_CHECK_MS);
     setTimeout(() => { rescueTick(); }, 60000); // por si el proceso arranca con el turno ya empezado
   } else {

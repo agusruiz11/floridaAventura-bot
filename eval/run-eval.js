@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from '../prompt.js';
-import { diasDeAlquiler, cargoSunPass, cotizarAuto } from '../cotizacion.js';
+import { cargoSunPass, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, MINIMO_DIAS } from '../cotizacion.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -95,11 +95,18 @@ function executeMockTool(toolName, toolInput, caseId) {
   // si el eval cotizara por su cuenta, podría dar PASS con una cuenta que el
   // server hace distinto — que es justo lo que hay que detectar acá.
   const { startDateTime, endDateTime, destinos, puertoDeCruceros } = toolInput || {};
-  const dias = startDateTime && endDateTime ? diasDeAlquiler(startDateTime, endDateTime) : null;
-  if (dias == null) return JSON.stringify(MOCK_CARS);
+  if (!(startDateTime && endDateTime)) return JSON.stringify(MOCK_CARS);
+  const rango = prepararRango(startDateTime, endDateTime);
+  if (rango.dias == null) return JSON.stringify({ error: 'La devolución tiene que ser posterior al retiro.' });
+  if (rango.dias < MINIMO_DIAS) return JSON.stringify(respuestaMinimoNoCumplido(rango));
 
-  const sunPass = cargoSunPass(dias, destinos);
-  return JSON.stringify(MOCK_CARS.map((car) => cotizarAuto(car, dias, sunPass, puertoDeCruceros)));
+  const sunPass = cargoSunPass(rango.dias, destinos);
+  return JSON.stringify(MOCK_CARS.map((car) => ({
+    ...cotizarAuto(car, rango.dias, sunPass, puertoDeCruceros),
+    retiro: rango.retiro,
+    devolucion: rango.devolucion,
+    horariosEstimados: rango.horariosEstimados,
+  })));
 }
 
 // ─── Keyword check ────────────────────────────────────────────────────────────
