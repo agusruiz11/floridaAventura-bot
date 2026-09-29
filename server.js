@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from './prompt.js';
 import { cargoSunPass, formatoUSD, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, MINIMO_DIAS } from './cotizacion.js';
+import { crearAgrupador } from './agrupar.js';
 
 const app = express();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -130,6 +131,27 @@ function extractQuickReplies(text) {
   const quickReplies = match[1].split('|').map(s => s.trim()).filter(Boolean);
   const cleanText = text.replace(/\[QUICK_REPLIES:[^\]]+\]\n?/, '').trim();
   return { cleanText, quickReplies };
+}
+
+// Link a la web cuando el cliente todavía no tiene fechas (pedido de Patricia,
+// 24/9/2026). El modelo no escribe la URL: pone el marcador [[LINK_WEB]] y el
+// código lo saca del texto y manda el link como último mensaje de la ráfaga.
+// Así el link sale siempre bien escrito y una sola vez. El marcador se limpia en
+// TODOS los canales, así nunca le llega a nadie aunque el modelo lo use donde no va.
+const LINK_WEB_RE = /[ \t]*\[\[\s*LINK_WEB\s*\]\][ \t]*/gi;
+const IG_WEB_LINK_NOTE = 'Acá podés probar distintas fechas y ver las opciones disponibles: https://www.floridaaventura.com/';
+
+function extractLinkWeb(text) {
+  const linkWeb = /\[\[\s*LINK_WEB\s*\]\]/i.test(text);
+  if (!linkWeb) return { cleanText: text, linkWeb: false };
+  const cleanText = text
+    .replace(LINK_WEB_RE, ' ')
+    .replace(/ +\n/g, '\n')
+    .replace(/\n +/g, '\n')
+    .replace(/ {2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return { cleanText, linkWeb: true };
 }
 
 async function executeTool(toolName, toolInput) {
@@ -307,7 +329,13 @@ Después del último auto, y antes del disclaimer de cotización, agregá una l�
 — "Estas son las 3 que mejor se ajustan a lo que me contaste, pero tenemos más disponibles para esas fechas. Si querés ver alguna en particular, decime y te la paso."
 — "Te dejo las 3 más convenientes para tu viaje. Hay otras opciones disponibles: si buscabas algo distinto (más chico, más grande, otro presupuesto), avisame y te muestro."
 Nunca digas un número exacto de autos restantes.
-Si el cliente pide otras opciones o un modelo puntual, volvé a llamar a buscar_autos con las mismas fechas y mostrale hasta 3 autos más, sin repetir los que ya le mandaste.`;
+Si el cliente pide otras opciones o un modelo puntual, volvé a llamar a buscar_autos con las mismas fechas y mostrale hasta 3 autos más, sin repetir los que ya le mandaste.
+
+4) SI EL CLIENTE TODAVÍA NO TIENE FECHAS
+Si el cliente dice que todavía no tiene fechas, que no sacó el pasaje o que solo sabe el mes o la temporada del viaje, no le pidas fechas exactas ni le festejes que "ya tiene el mes". Esto reemplaza, solo para este caso, la regla del ESTADO 1 de terminar preguntando las fechas.
+Respondé corto: contale que en la web puede probar distintas fechas y ver las opciones disponibles por su cuenta, y que cuando tenga un rango aproximado te lo pase y se lo cotizás.
+Terminá ese mensaje con el marcador [[LINK_WEB]] solo en la última línea. NO escribas vos la dirección web: el sistema saca el marcador y manda el link en un mensaje aparte, justo después del tuyo. Redactalo para que ese link se entienda solo. Ejemplo: "Te paso la web para que pruebes fechas y veas los autos disponibles. Cuando tengas un rango aproximado, escribime y te lo cotizo."
+Usá [[LINK_WEB]] una sola vez por conversación: si ya aparece en un mensaje tuyo anterior, no lo repitas. No lo uses cuando el cliente ya dio fechas, aunque sean aproximadas ("entre el 17 y el 18 de enero, unos 10 días"): en ese caso seguí el flujo normal y cotizá.`;
 
 // El bloque completo del canal Instagram. Con la oficina cerrada (el default)
 // devuelve exactamente el mismo texto que antes, para no invalidar el cache de
@@ -474,8 +502,9 @@ async function runBot(messages, { channel = 'web', rescate = false } = {}) {
     break;
   }
 
-  const { cleanText, quickReplies } = extractQuickReplies(finalText);
-  return { text: cleanText, images: lastSearchImages, quickReplies };
+  const { cleanText: sinLink, linkWeb } = extractLinkWeb(finalText);
+  const { cleanText, quickReplies } = extractQuickReplies(sinLink);
+  return { text: cleanText, images: lastSearchImages, quickReplies, linkWeb };
 }
 
 // ─── Chat endpoint (widget web) ──────────────────────────────────────────────
@@ -686,9 +715,45 @@ function findImageFor(carName, images) {
   return images.find((img) => img.name && normalizeCarName(img.name) === target) || null;
 }
 
-async function handleIgMessage(senderId, text) {
-  console.log(`[ig] Procesando mensaje de ${senderId}: "${text}"`);
+// ─── Agrupado de mensajes por persona ────────────────────────────────────────
+// La gente escribe como habla: la consulta llega partida en dos o tres mensajes
+// con segundos de diferencia. Si arrancamos una respuesta por cada uno, el modelo
+// corre en paralelo sobre casi el mismo historial y contesta lo mismo varias
+// veces. agrupar.js espera IG_DEBOUNCE_MS desde el último mensaje (tope
+// IG_DEBOUNCE_MAX_MS desde el primero), junta los textos y corre handleIgMessage
+// una sola vez; mientras responde, lo que llega va al turno siguiente.
+const IG_DEBOUNCE_MS = Number(process.env.IG_DEBOUNCE_MS ?? 20000);
+const IG_DEBOUNCE_MAX_MS = Number(process.env.IG_DEBOUNCE_MAX_MS ?? 60000);
+
+const igAgrupador = crearAgrupador({
+  esperaMs: IG_DEBOUNCE_MS,
+  maxMs: IG_DEBOUNCE_MAX_MS,
+  procesar: (senderId, text, { textos }) => handleIgMessage(senderId, text, textos.length),
+});
+
+function encolarIgMessage(senderId, text) {
+  const enEspera = igAgrupador.agregar(senderId, text);
+  // Mostramos "escribiendo…" ya: si no, durante la espera parece que no lo leímos.
+  if (enEspera === 1) igSendAction(senderId, 'typing_on');
+}
+
+// Corre una vez por turno, con todos los mensajes de la espera ya juntos. El
+// agrupador garantiza que no hay dos turnos en paralelo para la misma persona.
+async function handleIgMessage(senderId, text, cantidad = 1) {
   const session = getIgSession(senderId);
+
+  // Durante la espera pudo contestar Patricia o terminar el turno del bot: lo
+  // rechequeamos acá, no alcanza con el chequeo de cuando entró el mensaje.
+  if (session.humanUntil && Date.now() < session.humanUntil) {
+    console.log(`[ig] Charla con ${senderId} pausada por handoff humano — no contesto`);
+    return;
+  }
+  if (!isBotActiveNow()) {
+    console.log(`[ig] Fuera de horario del bot (hora Florida: ${floridaHour()}) — no contesto a ${senderId}, atiende Patricia`);
+    return;
+  }
+
+  console.log(`[ig] Procesando mensaje de ${senderId}: "${text}"${cantidad > 1 ? ` (${cantidad} mensajes agrupados)` : ''}`);
   // ¿Es la primera respuesta del bot en esta conversación? (para anteponer la nota de cierre)
   const isFirstReply = !session.messages.some((m) => m.role === 'assistant');
   session.messages.push({ role: 'user', content: text });
@@ -710,12 +775,23 @@ async function handleIgMessage(senderId, text) {
     result = { text: 'Disculpá, tuve un inconveniente. Escribile a Patricia: https://wa.me/13057731787', images: [], quickReplies: [] };
   }
 
-  session.messages.push({ role: 'assistant', content: result.text });
+  // Si el modelo pidió el link a la web, va como último mensaje de la ráfaga.
+  // Si igual escribió la dirección en el texto, no la mandamos dos veces.
+  const mandarLinkWeb = !!result.linkWeb && !/floridaaventura\.com/i.test(result.text || '');
+  if (result.linkWeb) console.log(`[ig] Link a la web pedido para ${senderId}${mandarLinkWeb ? '' : ' (ya venía en el texto, no lo duplico)'}`);
+
+  // En la historia queda el marcador, así en el turno siguiente el modelo ve que
+  // ya mandó el link y no lo repite.
+  session.messages.push({ role: 'assistant', content: result.linkWeb ? `${result.text}\n\n[[LINK_WEB]]`.trim() : result.text });
   session.updatedAt = Date.now();
 
   // La nota de "estamos cerrados" solo cuando la oficina está cerrada. Si el bot
   // atiende de día (prueba de turno completo), abrir con eso es un papelón.
-  const outbound = buildIgOutbound(result, isFirstReply && !isOfficeOpenNow() ? IG_CLOSED_NOTE : '');
+  const outbound = buildIgOutbound(
+    result,
+    isFirstReply && !isOfficeOpenNow() ? IG_CLOSED_NOTE : '',
+    mandarLinkWeb ? IG_WEB_LINK_NOTE : ''
+  );
   console.log(`[ig] Enviando ${outbound.length} mensajes (pausa ~${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms)`);
   await igSendSequence(senderId, outbound);
 }
@@ -954,6 +1030,12 @@ async function rescuePendingConversations() {
       saltear('handoff humano activo', label, `quedan ${Math.round((session.humanUntil - Date.now()) / 60000)} min`);
       continue;
     }
+    // El webhook ya la está atendiendo (respuesta en curso o mensajes esperando
+    // que termine de escribir): si la rescatamos ahora, le contestamos dos veces.
+    if (igAgrupador.ocupado(senderId)) {
+      saltear('el bot ya la está atendiendo por webhook', label);
+      continue;
+    }
 
     // Reacciones a historias, emojis sueltos y toques accidentales no son
     // consultas. Rescatarlos es escribirle a gente que no nos escribió.
@@ -1172,6 +1254,9 @@ app.post('/webhook', (req, res) => {
               continue;
             }
             session.humanUntil = Date.now() + HUMAN_HANDOFF_MS;
+            // Lo que estaba esperando para salir ya no sale: contesta Patricia.
+            // (Si ya hay una respuesta en curso, igSendSequence la corta sola.)
+            igAgrupador.cancelar(recipientId, 'respuesta manual');
             console.log(`[webhook] Respuesta manual detectada para ${recipientId} — pauso el bot ${HUMAN_HANDOFF_MS / 60000} min`);
           }
           continue;
@@ -1199,7 +1284,7 @@ app.post('/webhook', (req, res) => {
           continue;
         }
 
-        handleIgMessage(senderId, msg.text).catch((err) => console.error('[ig] handle error:', err.message));
+        encolarIgMessage(senderId, msg.text);
       }
     }
   } catch (err) {
@@ -1221,6 +1306,7 @@ app.listen(PORT, () => {
     console.log(`[ig] Horario de oficina: ${oStart === oEnd ? 'sin configurar — el bot habla siempre como fuera de hora (modo de siempre)' : `${oStart}:00–${oEnd}:00 (${IG_TZ}) — dentro de esa franja no dice "estamos cerrados"`}`);
   }
   console.log(`[ig] Ritmo: pausa ${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms · typing ${IG_TYPING ? 'on' : 'off'} · máx ${IG_MAX_CARS} autos por respuesta`);
+  console.log(`[ig] Agrupo mensajes: espera ${IG_DEBOUNCE_MS / 1000} s desde el último, tope ${IG_DEBOUNCE_MAX_MS / 1000} s desde el primero`);
 
   logTokenStatus();
   setInterval(logTokenStatus, 24 * 60 * 60 * 1000);
