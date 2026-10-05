@@ -5,6 +5,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT } from './prompt.js';
 import { cargoSunPass, formatoUSD, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, MINIMO_DIAS } from './cotizacion.js';
 import { crearAgrupador } from './agrupar.js';
+import { crearAlertas } from './alertas.js';
+import { crearTokenIg } from './ig-token.js';
 
 const app = express();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -595,9 +597,33 @@ function chunkText(text, max = 950) {
   return chunks;
 }
 
+// ─── Token de Instagram ──────────────────────────────────────────────────────
+// El token de Instagram Login dura 60 días y Meta no avisa cuando vence: el bot
+// sigue recibiendo mensajes pero todo envío rebota con code 190 (15/9/2026).
+// ig-token.js lo refresca solo y avisa por Slack (alertas.js) si igual deja de
+// servir. El token se pide siempre con igToken.token(), nunca directo de
+// process.env.
+const { alertar, conSlack } = crearAlertas({
+  webhookUrl: process.env.SLACK_WEBHOOK_URL,
+  bot: 'Florida Aventura',
+});
+const igToken = crearTokenIg({
+  envToken: process.env.IG_ACCESS_TOKEN,
+  base: process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0',
+  archivo: process.env.IG_TOKEN_FILE ?? './data/ig-token.json',
+  // El refresco corre solo en Railway: levantar el bot en una máquina con el
+  // token de producción en el .env no tiene que tocar ese token.
+  // IG_TOKEN_REFRESH=true o false lo fuerza.
+  refrescoActivo: process.env.IG_TOKEN_REFRESH
+    ? process.env.IG_TOKEN_REFRESH !== 'false'
+    : !!process.env.RAILWAY_ENVIRONMENT,
+  diasAviso: process.env.IG_TOKEN_AVISO_DIAS,
+  alertar,
+});
+
 async function igSend(recipientId, message) {
   const base = process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0';
-  const token = process.env.IG_ACCESS_TOKEN;
+  const token = igToken.token();
   if (!token) { console.error('[ig] Falta IG_ACCESS_TOKEN — no puedo responder'); return; }
 
   // Antes del fetch, no después: el echo puede llegar antes que la respuesta.
@@ -611,7 +637,9 @@ async function igSend(recipientId, message) {
     body: JSON.stringify({ recipient: { id: recipientId }, message }),
   });
   if (!res.ok) {
-    console.error('[ig] Error enviando mensaje:', res.status, await res.text());
+    const cuerpo = await res.text();
+    console.error('[ig] Error enviando mensaje:', res.status, cuerpo);
+    igToken.notarError(cuerpo, token);
   } else {
     const data = await res.json().catch(() => null);
     if (data?.message_id) {
@@ -645,7 +673,7 @@ function humanDelay() {
 async function igSendAction(recipientId, action) {
   if (!IG_TYPING) return;
   const base = process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0';
-  const token = process.env.IG_ACCESS_TOKEN;
+  const token = igToken.token();
   if (!token) return;
   try {
     const res = await fetch(`${base}/me/messages?access_token=${encodeURIComponent(token)}`, {
@@ -899,11 +927,15 @@ const IG_PREBOOKING_NOTE = 'Si preferís no esperar, podés dejar tu pre-reserva
 
 async function igGraph(path, params = {}) {
   const base = process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0';
-  const token = process.env.IG_ACCESS_TOKEN;
+  const token = igToken.token();
   if (!token) throw new Error('Falta IG_ACCESS_TOKEN');
   const qs = new URLSearchParams({ ...params, access_token: token });
   const res = await fetch(`${base}${path}?${qs}`);
-  if (!res.ok) throw new Error(`Graph ${path} → ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const cuerpo = await res.text();
+    igToken.notarError(cuerpo, token);
+    throw new Error(`Graph ${path} → ${res.status} ${cuerpo}`);
+  }
   return res.json();
 }
 
@@ -1109,36 +1141,6 @@ async function rescuePendingConversations() {
   return summary;
 }
 
-// ─── Estado del token ────────────────────────────────────────────────────────
-// El token de Meta puede vencer y, cuando vence, el bot deja de contestar EN
-// SILENCIO: los envíos fallan y nadie se entera hasta que alguien mira el inbox.
-// Lo consultamos al arrancar y una vez por día para que quede en los logs.
-
-async function logTokenStatus() {
-  const token = process.env.IG_ACCESS_TOKEN;
-  if (!token) { console.warn('[token] No hay IG_ACCESS_TOKEN configurado'); return; }
-  try {
-    const qs = new URLSearchParams({ input_token: token, access_token: token });
-    const res = await fetch(`https://graph.facebook.com/debug_token?${qs}`);
-    const body = await res.json();
-    if (body.error) { console.error(`[token] No pude verificarlo: ${body.error.message}`); return; }
-
-    const d = body.data || {};
-    if (!d.is_valid) { console.error('[token] ⚠️  EL TOKEN NO ES VÁLIDO — el bot no puede contestar'); return; }
-
-    if (!d.expires_at) {
-      console.log('[token] OK — no expira (token de larga duración)');
-      return;
-    }
-    const dias = Math.round((d.expires_at * 1000 - Date.now()) / 86400000);
-    const fecha = new Date(d.expires_at * 1000).toISOString().slice(0, 10);
-    if (dias <= 14) console.error(`[token] ⚠️  VENCE EN ${dias} DÍAS (${fecha}) — hay que renovarlo en Meta`);
-    else console.log(`[token] OK — vence en ${dias} días (${fecha})`);
-  } catch (err) {
-    console.error('[token] Error consultando debug_token:', err.message);
-  }
-}
-
 let rescueRunning = false;
 let lastRescueAt = 0;
 
@@ -1308,8 +1310,12 @@ app.listen(PORT, () => {
   console.log(`[ig] Ritmo: pausa ${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms · typing ${IG_TYPING ? 'on' : 'off'} · máx ${IG_MAX_CARS} autos por respuesta`);
   console.log(`[ig] Agrupo mensajes: espera ${IG_DEBOUNCE_MS / 1000} s desde el último, tope ${IG_DEBOUNCE_MAX_MS / 1000} s desde el primero`);
 
-  logTokenStatus();
-  setInterval(logTokenStatus, 24 * 60 * 60 * 1000);
+  console.log(`[avisos] Slack: ${conSlack ? 'activos' : 'APAGADOS (falta SLACK_WEBHOOK_URL), solo quedan en el log'}`);
+  // Refresca el token si toca y revisa cuánto le queda: a los 30 s y una vez por
+  // día. Reemplaza al chequeo viejo contra graph.facebook.com/debug_token, que
+  // no entiende los tokens de Instagram Login y logueaba "Cannot parse access
+  // token" con el token sano.
+  igToken.iniciar();
 
   if (IG_RESCUE_ENABLED) {
     console.log(`[rescate] Activo: primer barrido al arrancar el turno (${IG_BOT_START_HOUR}:00) y después cada ${IG_RESCUE_INTERVAL_MIN} min · rescata entre ${IG_RESCUE_MIN_AGE_MIN} min y ${IG_RESCUE_MAX_AGE_H}hs de antigüedad · máx ${IG_RESCUE_MAX_CONV} por barrido${IG_RESCUE_DRY_RUN ? ' · SIMULACRO (no envía)' : ''}`);
