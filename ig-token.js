@@ -15,7 +15,10 @@
 //      arrancar preferimos ese. El archivo recuerda con qué token de la variable
 //      se generó (solo un hash): si alguien carga un token nuevo en Railway, la
 //      variable manda y el archivo se ignora. Sin volumen montado el archivo se
-//      pierde en cada deploy y se vuelve a arrancar desde la variable.
+//      pierde en cada deploy y se vuelve a arrancar desde la variable. Para ese
+//      caso existe `persistir`: una función que recibe el token nuevo y lo guarda
+//      donde sobreviva a un deploy (ver railway-vars.js, que lo escribe en la
+//      propia variable IG_ACCESS_TOKEN de Railway).
 //   3. Avisa. Si el token deja de servir, si el refresco lleva días fallando o
 //      si le quedan pocos días, llama a alertar() (ver alertas.js). Un code 190
 //      suelto no alcanza: antes de avisar lo confirma contra /me.
@@ -73,6 +76,7 @@ export function crearTokenIg({
   fetchFn = globalThis.fetch,
   ahora = Date.now,
   alertar = async () => false,
+  persistir = null,
   log = console.log,
   warn = console.warn,
   diasAviso,
@@ -222,6 +226,18 @@ export function crearTokenIg({
     return true;
   }
 
+  // Guarda el token nuevo fuera del proceso, si hay dónde. Nunca tira.
+  async function persistirNuevo(nuevo) {
+    if (typeof persistir !== 'function') return false;
+    try {
+      await persistir(nuevo);
+      return true;
+    } catch (err) {
+      warn(`[token] No pude guardar el token nuevo en la variable de Railway: ${limpiar(err.message)}`);
+      return false;
+    }
+  }
+
   async function refrescar() {
     if (!token || !refrescable) return false;
     const usado = token;
@@ -242,10 +258,16 @@ export function crearTokenIg({
         const guardado = guardar();
         log(`[token] Refrescado: vence en ${Math.floor(segundos / 86400)} días (${fechaCorta(expiraEn)})`);
         if (cambio) {
-          warn(`[token] Meta devolvió un token distinto al de la variable IG_ACCESS_TOKEN${guardado ? ' (guardado en el archivo del token)' : ' y NO quedó guardado en disco'}`);
-          // Si el archivo ya sobrevivió a un reinicio hay volumen y no hay nada
-          // que avisar. Si no, el token nuevo se pierde en el próximo deploy.
-          if (!desdeArchivo) {
+          const enVariable = await persistirNuevo(nuevo);
+          if (enVariable) {
+            log('[token] Meta devolvió un token distinto: guardado en la variable IG_ACCESS_TOKEN de Railway');
+          } else {
+            warn(`[token] Meta devolvió un token distinto al de la variable IG_ACCESS_TOKEN${guardado ? ' (guardado en el archivo del token)' : ' y NO quedó guardado en disco'}`);
+          }
+          // Si quedó en la variable, o el archivo ya sobrevivió a un reinicio
+          // (hay volumen), no hay nada que avisar. Si no, el token nuevo se
+          // pierde en el próximo deploy.
+          if (!enVariable && !desdeArchivo) {
             avisar(
               'token-rota',
               'Meta entregó un token de Instagram nuevo al refrescar. El bot ya lo usa, pero sin un volumen de Railway montado en la carpeta del archivo se pierde en el próximo deploy y vuelve al de la variable IG_ACCESS_TOKEN. Hay que definir dónde guardarlo antes de volver a deployar.',

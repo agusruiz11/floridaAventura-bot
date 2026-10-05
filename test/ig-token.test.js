@@ -28,6 +28,7 @@ function armar(t, {
   me = () => [200, { id: '123' }],
   conArchivo = true,
   refrescoActivo = true,
+  persistir = null,
   dir,
 } = {}) {
   dir = dir || fs.mkdtempSync(path.join(os.tmpdir(), 'ig-token-'));
@@ -38,7 +39,7 @@ function armar(t, {
   const alertas = [];
   const logs = [];
   const igToken = crearTokenIg({
-    envToken, base, archivo, refrescoActivo,
+    envToken, base, archivo, refrescoActivo, persistir,
     ahora: () => estado.reloj,
     log: (l) => logs.push(l),
     warn: (l) => logs.push(l),
@@ -103,6 +104,40 @@ test('si Meta devuelve otro token lo usa, lo guarda y avisa que falta el volumen
   assert.equal(fs.statSync(archivo).mode & 0o777, 0o600);
   assert.deepEqual(alertas.map((a) => a.clave), ['token-rota']);
   assert.ok(logs.some((l) => l.includes('Meta devolvió un token distinto')));
+});
+
+test('con persistir: el token nuevo va a la variable y no avisa que falta volumen', async (t) => {
+  const guardados = [];
+  const { igToken, alertas, logs } = armar(t, {
+    refresco: () => [200, { access_token: 'IGAA-nuevo', expires_in: SESENTA_DIAS_S }],
+    persistir: async (v) => { guardados.push(v); },
+  });
+  await igToken.revisar();
+  assert.deepEqual(guardados, ['IGAA-nuevo']);
+  assert.equal(igToken.token(), 'IGAA-nuevo');
+  assert.equal(alertas.length, 0);
+  assert.ok(logs.some((l) => l.includes('guardado en la variable IG_ACCESS_TOKEN de Railway')));
+});
+
+test('con persistir: si Meta devuelve el mismo token no escribe nada', async (t) => {
+  const guardados = [];
+  const { igToken } = armar(t, { persistir: async (v) => { guardados.push(v); } });
+  await igToken.revisar();
+  assert.deepEqual(guardados, []);
+});
+
+test('con persistir que falla: usa el token nuevo igual, avisa y no filtra el token', async (t) => {
+  const NUEVO = 'IGAAsecretoRefrescado0123456789ab';
+  const { igToken, alertas, logs } = armar(t, {
+    refresco: () => [200, { access_token: NUEVO, expires_in: SESENTA_DIAS_S }],
+    persistir: async (v) => { throw new Error(`Railway rechazó el cambio: valor ${v}`); },
+  });
+  await igToken.revisar();
+  assert.equal(igToken.token(), NUEVO);
+  assert.ok(igToken.estado().expiraEn);
+  assert.deepEqual(alertas.map((a) => a.clave), ['token-rota']);
+  assert.ok(logs.some((l) => l.includes('No pude guardar el token nuevo en la variable de Railway')));
+  assert.ok(!(logs.join('\n') + JSON.stringify(alertas)).includes('secreto'));
 });
 
 test('al reiniciar con el mismo token en la variable, retoma el guardado y no avisa', async (t) => {

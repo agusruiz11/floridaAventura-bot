@@ -7,6 +7,7 @@ import { cargoSunPass, formatoUSD, cotizarAuto, prepararRango, respuestaMinimoNo
 import { crearAgrupador } from './agrupar.js';
 import { crearAlertas } from './alertas.js';
 import { crearTokenIg } from './ig-token.js';
+import { crearGuardadoEnRailway } from './railway-vars.js';
 
 const app = express();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -607,8 +608,19 @@ const { alertar, conSlack } = crearAlertas({
   webhookUrl: process.env.SLACK_WEBHOOK_URL,
   bot: 'Florida Aventura',
 });
+// Meta entrega un token distinto en cada refresco. Sin volumen (a propósito, ver
+// railway-vars.js) el lugar que sobrevive a un deploy es la propia variable
+// IG_ACCESS_TOKEN: con RAILWAY_API_TOKEN cargado, el bot la actualiza solo y sin
+// redeployar. Sin ese token queda null y todo sigue como antes.
+const guardarTokenEnRailway = crearGuardadoEnRailway({
+  apiToken: process.env.RAILWAY_API_TOKEN,
+  projectId: process.env.RAILWAY_PROJECT_ID,
+  environmentId: process.env.RAILWAY_ENVIRONMENT_ID,
+  serviceId: process.env.RAILWAY_SERVICE_ID,
+});
 const igToken = crearTokenIg({
   envToken: process.env.IG_ACCESS_TOKEN,
+  persistir: guardarTokenEnRailway,
   base: process.env.IG_GRAPH_BASE || 'https://graph.facebook.com/v21.0',
   archivo: process.env.IG_TOKEN_FILE ?? './data/ig-token.json',
   // El refresco corre solo en Railway: levantar el bot en una máquina con el
@@ -1311,6 +1323,7 @@ app.listen(PORT, () => {
   console.log(`[ig] Agrupo mensajes: espera ${IG_DEBOUNCE_MS / 1000} s desde el último, tope ${IG_DEBOUNCE_MAX_MS / 1000} s desde el primero`);
 
   console.log(`[avisos] Slack: ${conSlack ? 'activos' : 'APAGADOS (falta SLACK_WEBHOOK_URL), solo quedan en el log'}`);
+  console.log(`[token] Guardado del token refrescado: ${guardarTokenEnRailway ? 'en la variable IG_ACCESS_TOKEN de Railway' : 'solo en disco (falta RAILWAY_API_TOKEN), se pierde en cada deploy'}`);
   // Refresca el token si toca y revisa cuánto le queda: a los 30 s y una vez por
   // día. Reemplaza al chequeo viejo contra graph.facebook.com/debug_token, que
   // no entiende los tokens de Instagram Login y logueaba "Cannot parse access
