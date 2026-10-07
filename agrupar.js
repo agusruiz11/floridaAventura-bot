@@ -13,6 +13,7 @@
 //   const agrupador = crearAgrupador({ esperaMs, maxMs, procesar });
 //   agrupador.agregar(id, texto)        → cuántos mensajes hay en espera
 //   agrupador.cancelar(id, motivo)      → cuántos mensajes se descartaron
+//   agrupador.retirarUltimo(id, motivo) → el último texto en espera, o null
 //   agrupador.ocupado(id)               → true si está respondiendo o tiene
 //                                          mensajes esperando turno
 //
@@ -106,10 +107,27 @@ export function crearAgrupador({
     return descartados;
   }
 
+  // Saca de la espera solo el último mensaje y lo devuelve (null si no hay o si
+  // hay una respuesta en curso). Lo usa el server cuando Instagram ya contestó
+  // ese mensaje con una respuesta automática: lo anterior sigue esperando turno.
+  function retirarUltimo(id, motivo = '') {
+    const e = estados.get(id);
+    if (!e || e.respondiendo || !e.textos.length) return null;
+    const texto = e.textos.pop();
+    if (!e.textos.length) {
+      clearTimeout(e.timer);
+      e.timer = null;
+      e.primeroEn = 0;
+    }
+    log(`[agrupar] ${id}: retiro 1 mensaje en espera${motivo ? ` (${motivo})` : ''}`);
+    limpiarSiVacio(id, e);
+    return texto;
+  }
+
   function ocupado(id) {
     const e = estados.get(id);
     return !!e && (e.respondiendo || e.textos.length > 0);
   }
 
-  return { agregar, cancelar, ocupado, esperaMs, maxMs };
+  return { agregar, cancelar, retirarUltimo, ocupado, esperaMs, maxMs };
 }

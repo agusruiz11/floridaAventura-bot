@@ -557,6 +557,62 @@ const HUMAN_HANDOFF_MS = 2 * 60 * 60 * 1000; // si alguien contesta manualmente,
 const OWN_SEND_GRACE_MS = 15 * 1000;
 const FALLBACK_COOLDOWN_MS = 15 * 60 * 1000; // no repetir el mensaje de error más de una vez cada 15 min por charla
 
+// ─── Respuestas automáticas de Instagram ─────────────────────────────────────
+// Las preguntas frecuentes configuradas en la cuenta ("¿Cuáles son los requisitos
+// para alquilar un carro?") las contesta Instagram solo, y esa respuesta llega acá
+// como un echo igual al de una respuesta manual. Entre el 1 y el 3/10/2026 pausó
+// al bot 2 hs en 6 charlas. Un echo cuyo texto EMPIEZA con alguno de estos
+// fragmentos no pausa ni descarta nada: queda anotado en la charla para que el
+// bot siga sabiendo que la persona ya recibió esa información.
+// AUTO_DM_TEXTOS: comienzos de esos textos, separados por "|". Vacío = apagado
+// (todo echo ajeno pausa, como antes).
+const normalizarTexto = (t) => String(t || '')
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
+const AUTO_DM_TEXTOS = (process.env.AUTO_DM_TEXTOS ?? 'los requisitos son: * renta minima de 4 dias')
+  .split('|').map(normalizarTexto).filter(Boolean);
+// Cuánto puede separar a la pregunta frecuente de su respuesta automática. En
+// los logs llegan con 1 a 2 segundos de diferencia.
+const AUTO_DM_VENTANA_MS = Number(process.env.AUTO_DM_VENTANA_MS ?? 5000);
+
+function esRespuestaAutomatica(texto) {
+  const t = normalizarTexto(texto);
+  return !!t && AUTO_DM_TEXTOS.some((f) => t.startsWith(f));
+}
+
+// Suma un mensaje a la charla respetando la alternancia user/assistant.
+function anotarEnSesion(session, role, texto) {
+  const ultimo = session.messages[session.messages.length - 1];
+  if (ultimo && ultimo.role === role && typeof ultimo.content === 'string') ultimo.content += `\n${texto}`;
+  else session.messages.push({ role, content: texto });
+  session.updatedAt = Date.now();
+}
+
+// Deja la respuesta automática en la charla como un mensaje nuestro. Si la
+// pregunta que la disparó está esperando turno en el agrupador, la saca de ahí
+// (Instagram ya la contestó) y la anota como mensaje del cliente.
+function anotarRespuestaAutomatica(recipientId, session, texto) {
+  const ahora = Date.now();
+  let pregunta = null;
+  if (ahora - (session.ultimoEntranteEn || 0) < AUTO_DM_VENTANA_MS) {
+    pregunta = igAgrupador.retirarUltimo(recipientId, 'ya lo contestó la respuesta automática de Instagram');
+  }
+  if (igAgrupador.ocupado(recipientId) && !pregunta) {
+    // Hay una respuesta del bot en curso: no tocamos la charla a mitad de turno.
+    return;
+  }
+  if (pregunta) anotarEnSesion(session, 'user', pregunta);
+  else if (!session.messages.length || session.messages[session.messages.length - 1].role !== 'user') {
+    anotarEnSesion(session, 'user', '(tocó una pregunta frecuente de Instagram)');
+    session.autoSinPregunta = true;
+  }
+  anotarEnSesion(session, 'assistant', texto);
+  session.autoRespuestaEn = ahora;
+}
+
 function getIgSession(senderId) {
   const now = Date.now();
   let s = igSessions.get(senderId);
@@ -1267,6 +1323,17 @@ app.post('/webhook', (req, res) => {
               console.log(`[webhook] Echo propio para ${recipientId} (llegó antes que el message_id) — lo ignoro`);
               continue;
             }
+            // Respuesta automática de Instagram (pregunta frecuente): no es
+            // Patricia. Si algo falla acá, sigue el camino de siempre.
+            if (esRespuestaAutomatica(msg.text)) {
+              try {
+                anotarRespuestaAutomatica(recipientId, session, msg.text);
+                console.log(`[handoff] Respuesta automática de Instagram para ${recipientId}, no pauso`);
+                continue;
+              } catch (err) {
+                console.error(`[handoff] No pude anotar la respuesta automática para ${recipientId}: ${err.message} — la trato como manual`);
+              }
+            }
             session.humanUntil = Date.now() + HUMAN_HANDOFF_MS;
             // Lo que estaba esperando para salir ya no sale: contesta Patricia.
             // (Si ya hay una respuesta en curso, igSendSequence la corta sola.)
@@ -1297,6 +1364,18 @@ app.post('/webhook', (req, res) => {
           console.log(`[webhook] Charla con ${senderId} pausada por handoff humano — no contesto`);
           continue;
         }
+
+        // La pregunta frecuente llegó DESPUÉS de su respuesta automática (orden
+        // invertido): Instagram ya la contestó, no la contestamos de nuevo.
+        if (session.autoSinPregunta && Date.now() - (session.autoRespuestaEn || 0) < AUTO_DM_VENTANA_MS) {
+          session.autoSinPregunta = false;
+          const primero = session.messages[session.messages.length - 2];
+          if (primero?.role === 'user') primero.content = msg.text;
+          console.log(`[handoff] ${senderId}: la pregunta frecuente ya tiene su respuesta automática — no la contesto`);
+          continue;
+        }
+        session.autoSinPregunta = false;
+        session.ultimoEntranteEn = Date.now();
 
         encolarIgMessage(senderId, msg.text);
       }
