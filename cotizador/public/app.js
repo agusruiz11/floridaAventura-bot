@@ -53,6 +53,9 @@ function mostrarError(id, mensaje) {
   nodo.hidden = !mensaje;
 }
 
+// "orlando + key west" → "Orlando + Key West"
+const mayuscula = (t) => String(t || '').replace(/(^|[\s+(])([a-zñáéíóú])/g, (_m, a, b) => a + b.toUpperCase());
+
 const normalizar = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 
 // ─── Destinos ───────────────────────────────────────────────────────────────
@@ -321,7 +324,7 @@ function pintarCotizacion() {
   const { reglas } = estado.busqueda;
 
   marcarAjuste('aj-dias', 'n-aj-dias', c.dias !== c.diasRegla, `Por las fechas y horarios: ${c.diasRegla}.`);
-  marcarAjuste('aj-sunpass', 'n-aj-sunpass', c.sunPass.manual, `Por regla: USD ${c.sunPassRegla.texto} (${c.sunPassRegla.detalle}).`);
+  marcarAjuste('aj-sunpass', 'n-aj-sunpass', c.sunPass.manual, `Por regla: USD ${c.sunPassRegla.texto} (${c.sunPassRegla.esEstimado ? c.sunPassRegla.detalle : mayuscula(c.sunPassRegla.detalle)}).`);
 
   const notaDescuento = $('nota-descuento');
   const conDescuento = c.autos.some((a) => a.descuento);

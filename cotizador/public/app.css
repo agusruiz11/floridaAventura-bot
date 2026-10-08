@@ -235,6 +235,9 @@ input:focus-visible, textarea:focus-visible, button:focus-visible {
 .hoja-pie { margin-top: 20px; padding-top: 12px; border-top: 3px solid var(--turquesa); display: flex; flex-wrap: wrap; gap: 4px 20px; font-weight: 600; color: var(--azul-profundo); }
 
 /* ── Historial ── */
+.solo-pc { display: none; }
+.barra { flex-wrap: nowrap; }
+.barra .boton-texto { white-space: nowrap; }
 .marco { display: block; }
 .historial {
   display: none;
@@ -262,12 +265,12 @@ input:focus-visible, textarea:focus-visible, button:focus-visible {
 
 @media (min-width: 960px) {
   .solo-celular { display: none; }
+  .solo-pc { display: inline; }
   .marco { display: grid; grid-template-columns: 280px minmax(0, 1fr); align-items: start; }
   .historial {
     display: block; position: sticky; top: 0;
-    max-height: 100vh; overflow-y: auto;
+    height: 100vh; overflow-y: auto;
     border-bottom: 0; border-right: 1px solid var(--borde);
-    min-height: calc(100vh - 61px);
   }
 }
 
