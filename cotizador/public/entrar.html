@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Cotizador · Florida Aventura</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body class="acceso">
+  <main class="acceso-caja">
+    <img src="/logo.png" alt="Florida Aventura Car Rental" class="acceso-logo" width="160" height="160" />
+    <h1>Cotizador</h1>
+    <form id="form-entrar" novalidate>
+      <label for="clave">Clave de acceso</label>
+      <input id="clave" name="clave" type="password" autocomplete="current-password" required />
+      <p id="error-entrar" class="error" role="alert" hidden></p>
+      <button type="submit" class="boton">Entrar</button>
+    </form>
+  </main>
+  <script src="/entrar.js"></script>
+</body>
+</html>

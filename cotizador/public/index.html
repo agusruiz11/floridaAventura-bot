@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Cotizador · Florida Aventura</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;700&family=Yellowtail&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <header class="barra">
+    <img src="/logo.png" alt="Florida Aventura Car Rental" width="44" height="44" />
+    <span class="barra-titulo">Cotizador</span>
+    <button type="button" id="btn-historial" class="boton-texto solo-celular" aria-expanded="false" aria-controls="historial">Historial</button>
+    <button type="button" id="btn-nueva" class="boton-texto">Nueva cotización</button>
+    <button type="button" id="btn-salir" class="boton-texto">Salir</button>
+  </header>
+
+  <div class="marco">
+  <aside id="historial" class="historial" aria-labelledby="t-historial">
+    <h2 id="t-historial">Cotizaciones</h2>
+    <p id="historial-vacio" class="ayuda">Todavía no hay cotizaciones guardadas.</p>
+    <ul id="lista-historial" class="historial-lista"></ul>
+    <p class="nota historial-pie">Se guardan solas en este navegador, hasta 50. Tocar "Nueva cotización" no borra nada.</p>
+  </aside>
+
+  <main class="pagina">
+    <section class="bloque" aria-labelledby="t-mensajes">
+      <h2 id="t-mensajes">Mensajes del cliente</h2>
+      <div class="campo">
+        <label for="cliente">Cliente (nombre o usuario, para encontrarla después)</label>
+        <input id="cliente" type="text" maxlength="60" autocomplete="off" />
+      </div>
+      <p class="ayuda">Pegá lo que escribió el cliente. Se leen los datos y los revisás abajo antes de cotizar.</p>
+      <label for="mensajes" class="solo-lectores">Mensajes del cliente</label>
+      <textarea id="mensajes" rows="5" placeholder="Ej.: Hola, necesito una SUV del 12 al 27 de octubre, somos 4. Retiro en el aeropuerto de Miami."></textarea>
+      <div class="acciones">
+        <button type="button" id="btn-leer" class="boton">Leer datos</button>
+        <span id="estado-leer" class="estado" role="status"></span>
+      </div>
+      <p id="error-leer" class="error" role="alert" hidden></p>
+    </section>
+
+    <section class="bloque" aria-labelledby="t-datos">
+      <h2 id="t-datos">Datos del viaje</h2>
+      <div id="dudas" class="aviso" hidden>
+        <strong>Para revisar</strong>
+        <ul id="lista-dudas"></ul>
+      </div>
+      <form id="form-datos" novalidate>
+        <fieldset>
+          <legend>Retiro</legend>
+          <div class="fila">
+            <div class="campo">
+              <label for="retiroFecha">Fecha</label>
+              <input id="retiroFecha" type="date" required />
+              <span class="nota" id="n-retiroFecha"></span>
+            </div>
+            <div class="campo">
+              <label for="retiroHora">Hora</label>
+              <input id="retiroHora" type="time" />
+              <span class="nota" id="n-retiroHora"></span>
+            </div>
+          </div>
+          <div class="campo">
+            <label for="lugarEntrega">Lugar de entrega</label>
+            <input id="lugarEntrega" type="text" list="lugares" autocomplete="off" />
+            <span class="nota" id="n-lugarEntrega"></span>
+          </div>
+          <label class="casilla">
+            <input id="puertoDeCruceros" type="checkbox" />
+            <span>Retira en el Puerto de Cruceros (suma USD 50)</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Devolución</legend>
+          <div class="fila">
+            <div class="campo">
+              <label for="devolucionFecha">Fecha</label>
+              <input id="devolucionFecha" type="date" required />
+              <span class="nota" id="n-devolucionFecha"></span>
+            </div>
+            <div class="campo">
+              <label for="devolucionHora">Hora</label>
+              <input id="devolucionHora" type="time" />
+              <span class="nota" id="n-devolucionHora"></span>
+            </div>
+          </div>
+          <div class="campo">
+            <label for="lugarDevolucion">Lugar de devolución</label>
+            <input id="lugarDevolucion" type="text" list="lugares" autocomplete="off" />
+            <span class="nota" id="n-lugarDevolucion"></span>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Qué necesita</legend>
+          <div class="fila fila-3">
+            <div class="campo">
+              <label for="categoria">Tipo de auto</label>
+              <input id="categoria" type="text" autocomplete="off" />
+              <span class="nota" id="n-categoria"></span>
+            </div>
+            <div class="campo">
+              <label for="pasajeros">Pasajeros</label>
+              <input id="pasajeros" type="number" min="1" max="20" inputmode="numeric" />
+              <span class="nota" id="n-pasajeros"></span>
+            </div>
+            <div class="campo">
+              <label for="valijas">Valijas</label>
+              <input id="valijas" type="number" min="0" max="20" inputmode="numeric" />
+              <span class="nota" id="n-valijas"></span>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Destinos fuera de Miami</legend>
+          <p class="ayuda">Definen el SunPass. Sin destinos se usa la tarifa de Miami.</p>
+          <div id="destinos" class="casillas"></div>
+          <p id="otros-destinos" class="nota" hidden></p>
+        </fieldset>
+
+        <datalist id="lugares">
+          <option value="Aeropuerto de Miami (MIA)"></option>
+          <option value="Aeropuerto de Fort Lauderdale (FLL)"></option>
+          <option value="Hotel en Miami"></option>
+          <option value="Puerto de Cruceros de Miami"></option>
+        </datalist>
+
+        <div class="acciones">
+          <button type="submit" id="btn-buscar" class="boton">Buscar autos</button>
+          <span id="estado-buscar" class="estado" role="status"></span>
+        </div>
+        <p id="error-buscar" class="error" role="alert" hidden></p>
+      </form>
+    </section>
+
+    <section class="bloque" id="s-autos" aria-labelledby="t-autos" hidden>
+      <h2 id="t-autos">Autos y valores</h2>
+      <div id="aviso-guardada" class="aviso" hidden></div>
+      <p id="resumen-busqueda" class="resumen"></p>
+      <div id="avisos-busqueda" class="aviso" hidden></div>
+
+      <div class="fila ajustes">
+        <div class="campo">
+          <label for="aj-dias">Días a cobrar</label>
+          <input id="aj-dias" type="number" min="1" max="365" inputmode="numeric" />
+          <span class="nota" id="n-aj-dias"></span>
+        </div>
+        <div class="campo">
+          <label for="aj-sunpass">SunPass (USD)</label>
+          <input id="aj-sunpass" type="number" min="0" max="1000" step="0.01" inputmode="decimal" />
+          <span class="nota" id="n-aj-sunpass"></span>
+        </div>
+      </div>
+      <p id="nota-descuento" class="nota" hidden></p>
+
+      <p class="ayuda">Elegí hasta 3 autos. Podés cambiar el precio por día de cada uno.</p>
+      <ul id="lista-autos" class="autos"></ul>
+      <p id="error-cotizar" class="error" role="alert" hidden></p>
+    </section>
+
+    <section class="bloque" id="s-salida" aria-labelledby="t-salida" hidden>
+      <h2 id="t-salida">Cotización</h2>
+      <div class="pestanas" role="tablist">
+        <button type="button" role="tab" id="tab-ig" aria-selected="true" aria-controls="panel-ig">Mensaje para Instagram</button>
+        <button type="button" role="tab" id="tab-pdf" aria-selected="false" aria-controls="panel-pdf">PDF</button>
+      </div>
+
+      <div id="panel-ig" role="tabpanel" aria-labelledby="tab-ig">
+        <p class="ayuda">Van en este orden, un mensaje por cada bloque.</p>
+        <div class="acciones">
+          <button type="button" id="btn-copiar-todo" class="boton boton-secundario">Copiar todo</button>
+          <span id="estado-copiar" class="estado" role="status"></span>
+        </div>
+        <ol id="lista-mensajes" class="mensajes"></ol>
+      </div>
+
+      <div id="panel-pdf" role="tabpanel" aria-labelledby="tab-pdf" hidden>
+        <p class="ayuda">Se abre la ventana de impresión: elegí "Guardar como PDF".</p>
+        <div class="acciones">
+          <button type="button" id="btn-pdf" class="boton">Guardar como PDF</button>
+        </div>
+        <div class="hoja-marco">
+          <article id="hoja" class="hoja"></article>
+        </div>
+      </div>
+    </section>
+  </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
