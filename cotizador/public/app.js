@@ -31,6 +31,7 @@ const estado = {
   autos: [],        // { ...ficha, elegido, precio, nota }
   cotizacion: null, // respuesta de /api/cotizar
   sunPassManual: false, // ¿Patricia tocó el SunPass?
+  buscadaEn: null,  // cuándo se consultó la disponibilidad
 };
 
 async function pedir(ruta, cuerpo) {
@@ -111,6 +112,7 @@ async function leerMensajes() {
     const { datos } = await pedir('/api/leer', { mensajes });
     cargarDatos(datos);
     $('estado-leer').textContent = 'Listo. Revisá los datos abajo.';
+    guardarPronto();
     $('t-datos').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     $('estado-leer').textContent = '';
@@ -169,6 +171,8 @@ async function buscar(e) {
     estado.autos = r.autos.map((a) => ({ ...a, elegido: false, precio: a.pricePerDay, nota: '' }));
     estado.cotizacion = null;
     estado.sunPassManual = false;
+    estado.buscadaEn = Date.now();
+    $('aviso-guardada').hidden = true;
     preseleccionar(estado.autos);
 
     $('aj-dias').value = r.rango.dias;
@@ -342,9 +346,11 @@ function pintarCotizacion() {
 
   const elegidos = c.autos.filter((a) => a.elegido);
   $('s-salida').hidden = !elegidos.length;
-  if (!elegidos.length) return;
-  pintarMensajes(c.mensajes);
-  pintarHoja(c, elegidos);
+  if (elegidos.length) {
+    pintarMensajes(c.mensajes);
+    pintarHoja(c, elegidos);
+  }
+  guardarPronto();
 }
 
 // ─── Salida: mensajes para Instagram ────────────────────────────────────────
@@ -462,18 +468,246 @@ function elegirPestana(cual) {
   }
 }
 
-function nuevaCotizacion() {
-  $('mensajes').value = '';
+// ─── Historial: las cotizaciones se guardan solas en este navegador ────────
+// Cada cotización queda con todo lo necesario para volver a abrirla tal como
+// estaba: mensajes, formulario, autos, valores modificados y salida. No pasa por
+// el servidor. "Nueva cotización" guarda la que está abierta y abre una en blanco.
+
+const CLAVE_LISTA = 'cz_cotizaciones';
+const CLAVE_ABIERTA = 'cz_abierta';
+const MAX_GUARDADAS = 50;
+const NOTAS = [...CAMPOS.map((c) => `n-${c}`)];
+
+let actualId = null;
+let creadaEn = null;
+let restaurando = false;
+
+const nuevoId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+function leerLista() {
+  try {
+    const lista = JSON.parse(localStorage.getItem(CLAVE_LISTA) || '[]');
+    return Array.isArray(lista) ? lista : [];
+  } catch {
+    return [];
+  }
+}
+
+function escribirLista(lista) {
+  // Si el navegador se queda sin espacio, se sueltan las más viejas y se reintenta.
+  let recorte = lista.slice(0, MAX_GUARDADAS);
+  while (recorte.length) {
+    try {
+      localStorage.setItem(CLAVE_LISTA, JSON.stringify(recorte));
+      return true;
+    } catch {
+      recorte = recorte.slice(0, Math.floor(recorte.length / 2));
+    }
+  }
+  return false;
+}
+
+function formularioActual() {
+  const campos = {};
+  for (const c of CAMPOS) campos[c] = $(c).value;
+  const notas = {};
+  for (const n of NOTAS) notas[n] = $(n)?.textContent || '';
+  return {
+    cliente: $('cliente').value,
+    mensajes: $('mensajes').value,
+    campos,
+    notas,
+    destinos: destinosElegidos(),
+    puertoDeCruceros: $('puertoDeCruceros').checked,
+    dudas: [...$('lista-dudas').children].map((li) => li.textContent),
+    otrosDestinos: $('otros-destinos').hidden ? '' : $('otros-destinos').textContent,
+  };
+}
+
+function aplicarFormulario(f) {
+  $('cliente').value = f.cliente || '';
+  $('mensajes').value = f.mensajes || '';
+  for (const c of CAMPOS) $(c).value = f.campos?.[c] ?? '';
+  for (const n of NOTAS) if ($(n)) $(n).textContent = f.notas?.[n] || '';
+  for (const casilla of document.querySelectorAll('[data-destino]')) casilla.checked = (f.destinos || []).includes(casilla.value);
+  $('puertoDeCruceros').checked = !!f.puertoDeCruceros;
+  $('lista-dudas').replaceChildren(...(f.dudas || []).map((d) => el('li', { text: d })));
+  $('dudas').hidden = !(f.dudas || []).length;
+  $('otros-destinos').textContent = f.otrosDestinos || '';
+  $('otros-destinos').hidden = !f.otrosDestinos;
+}
+
+function tieneContenido(f) {
+  return !!(f.cliente.trim() || f.mensajes.trim() || f.destinos.length || Object.values(f.campos).some((v) => String(v).trim()));
+}
+
+const diaMes = (iso) => (iso ? `${Number(iso.slice(8, 10))}/${Number(iso.slice(5, 7))}` : '');
+
+function tituloDe(f) {
+  const fechas = estado.cotizacion?.fechas || estado.busqueda?.fechas
+    || (f.campos.retiroFecha && f.campos.devolucionFecha ? `${diaMes(f.campos.retiroFecha)} al ${diaMes(f.campos.devolucionFecha)}` : '');
+  const partes = [f.cliente.trim(), fechas, f.campos.categoria.trim()].filter(Boolean);
+  if (partes.length) return partes.join(' · ');
+  const texto = f.mensajes.trim().replace(/\s+/g, ' ');
+  return texto ? (texto.length > 60 ? `${texto.slice(0, 60)}…` : texto) : 'Sin datos';
+}
+
+function guardarAhora() {
+  clearTimeout(temporizadorGuardar);
+  if (restaurando || !actualId) return;
+  const f = formularioActual();
+  if (!tieneContenido(f)) return;
+  const elegidos = (estado.cotizacion?.autos || []).filter((a) => a.elegido).length;
+  const registro = {
+    id: actualId,
+    creada: creadaEn,
+    actualizada: Date.now(),
+    titulo: tituloDe(f),
+    elegidos,
+    formulario: f,
+    viaje: estado.viaje,
+    busqueda: estado.busqueda,
+    buscadaEn: estado.buscadaEn,
+    autos: estado.autos,
+    cotizacion: estado.cotizacion,
+    ajustes: { dias: $('aj-dias').value, sunPass: $('aj-sunpass').value, sunPassManual: estado.sunPassManual },
+  };
+  const lista = leerLista();
+  const i = lista.findIndex((x) => x.id === actualId);
+  if (i >= 0) lista[i] = registro; else lista.unshift(registro);
+  escribirLista(lista);
+  try { localStorage.setItem(CLAVE_ABIERTA, actualId); } catch { /* sin espacio: no es grave */ }
+  pintarHistorial();
+}
+
+let temporizadorGuardar = null;
+function guardarPronto() {
+  if (restaurando) return;
+  clearTimeout(temporizadorGuardar);
+  temporizadorGuardar = setTimeout(guardarAhora, 500);
+}
+
+function limpiarPantalla() {
   $('form-datos').reset();
-  for (const nota of document.querySelectorAll('#form-datos .nota')) nota.textContent = '';
-  $('otros-destinos').hidden = true;
-  $('dudas').hidden = true;
-  $('s-autos').hidden = true;
-  $('s-salida').hidden = true;
+  aplicarFormulario({ campos: {}, notas: {}, destinos: [], dudas: [] });
+  for (const id of ['s-autos', 's-salida', 'aviso-guardada']) $(id).hidden = true;
   $('estado-leer').textContent = '';
+  $('estado-buscar').textContent = '';
   for (const id of ['error-leer', 'error-buscar', 'error-cotizar']) mostrarError(id, '');
-  Object.assign(estado, { leido: false, busqueda: null, viaje: null, autos: [], cotizacion: null, sunPassManual: false });
+  Object.assign(estado, { leido: false, busqueda: null, viaje: null, autos: [], cotizacion: null, sunPassManual: false, buscadaEn: null });
+  elegirPestana('tab-ig');
+}
+
+function enBlanco() {
+  limpiarPantalla();
+  actualId = nuevoId();
+  creadaEn = Date.now();
+  try { localStorage.removeItem(CLAVE_ABIERTA); } catch { /* nada */ }
+  pintarHistorial();
+}
+
+// Guarda la que está abierta y abre una en blanco. No borra nada.
+function nuevaCotizacion() {
+  guardarAhora();
+  enBlanco();
+  cerrarHistorial();
   window.scrollTo({ top: 0 });
+  $('cliente').focus();
+}
+
+const fechaCorta = (ms) => new Date(ms).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
+
+function abrirCotizacion(id) {
+  if (id === actualId) { cerrarHistorial(); return; }
+  guardarAhora();
+  const r = leerLista().find((x) => x.id === id);
+  if (!r) { pintarHistorial(); return; }
+
+  restaurando = true;
+  try {
+    limpiarPantalla();
+    actualId = r.id;
+    creadaEn = r.creada || Date.now();
+    aplicarFormulario(r.formulario || {});
+    Object.assign(estado, {
+      viaje: r.viaje || null,
+      busqueda: r.busqueda || null,
+      buscadaEn: r.buscadaEn || null,
+      autos: Array.isArray(r.autos) ? r.autos : [],
+      cotizacion: r.cotizacion || null,
+      sunPassManual: !!r.ajustes?.sunPassManual,
+    });
+    if (estado.busqueda) {
+      $('aj-dias').value = r.ajustes?.dias ?? estado.busqueda.rango.dias;
+      $('aj-sunpass').value = r.ajustes?.sunPass ?? estado.busqueda.sunPass.monto;
+      pintarBusqueda();
+      $('s-autos').hidden = false;
+      if (estado.cotizacion) pintarCotizacion();
+      // Los precios y la disponibilidad son los del momento de la búsqueda.
+      const vieja = !estado.buscadaEn || Date.now() - estado.buscadaEn > 30 * 60_000;
+      const aviso = $('aviso-guardada');
+      aviso.hidden = !vieja;
+      if (vieja) {
+        aviso.replaceChildren(el('p', {
+          text: `Autos y precios consultados el ${estado.buscadaEn ? fechaCorta(estado.buscadaEn) : 'día en que se guardó'}. Tocá "Buscar autos" para actualizar la disponibilidad antes de enviarla.`,
+        }));
+      }
+    }
+  } finally {
+    restaurando = false;
+  }
+  try { localStorage.setItem(CLAVE_ABIERTA, actualId); } catch { /* nada */ }
+  pintarHistorial();
+  cerrarHistorial();
+  window.scrollTo({ top: 0 });
+}
+
+function borrarCotizacion(id) {
+  escribirLista(leerLista().filter((x) => x.id !== id));
+  if (id === actualId) enBlanco(); else pintarHistorial();
+}
+
+function pintarHistorial() {
+  const lista = leerLista().sort((a, b) => (b.actualizada || 0) - (a.actualizada || 0));
+  $('historial-vacio').hidden = lista.length > 0;
+  $('lista-historial').replaceChildren(...lista.map((r) => {
+    const detalle = `${fechaCorta(r.actualizada || r.creada)} · ${r.elegidos ? `${r.elegidos} ${r.elegidos === 1 ? 'auto elegido' : 'autos elegidos'}` : 'sin cotizar'}`;
+    const acciones = el('div', { class: 'historial-acciones' });
+    const pedirBorrado = () => {
+      acciones.replaceChildren(
+        '¿Borrarla?',
+        el('button', { type: 'button', class: 'boton-texto peligro', text: 'Sí, borrar', onclick: () => borrarCotizacion(r.id) }),
+        el('button', { type: 'button', class: 'boton-texto', text: 'No', onclick: () => pintarHistorial() }),
+      );
+    };
+    acciones.append(el('button', { type: 'button', class: 'boton-texto', text: 'Borrar', 'aria-label': `Borrar ${r.titulo}`, onclick: pedirBorrado }));
+    return el('li', { class: `historial-item${r.id === actualId ? ' actual' : ''}` }, [
+      el('button', { type: 'button', class: 'historial-abrir', 'aria-current': r.id === actualId ? 'true' : null, onclick: () => abrirCotizacion(r.id) }, [
+        el('span', { class: 'historial-titulo', text: r.titulo || 'Sin datos' }),
+        el('span', { class: 'historial-detalle', text: detalle }),
+      ]),
+      acciones,
+    ]);
+  }));
+}
+
+function cerrarHistorial() {
+  $('historial').classList.remove('abierto');
+  $('btn-historial').setAttribute('aria-expanded', 'false');
+}
+
+function alternarHistorial() {
+  const abierto = $('historial').classList.toggle('abierto');
+  $('btn-historial').setAttribute('aria-expanded', String(abierto));
+  if (abierto) window.scrollTo({ top: 0 });
+}
+
+function iniciarHistorial() {
+  let abierta = null;
+  try { abierta = localStorage.getItem(CLAVE_ABIERTA); } catch { /* nada */ }
+  enBlanco();
+  if (abierta && leerLista().some((x) => x.id === abierta)) abrirCotizacion(abierta);
+  else pintarHistorial();
 }
 
 armarDestinos();
@@ -486,4 +720,11 @@ $('tab-pdf').addEventListener('click', () => elegirPestana('tab-pdf'));
 $('btn-copiar-todo').addEventListener('click', (e) => copiar((estado.cotizacion?.mensajes || []).join('\n\n'), e.currentTarget));
 $('btn-pdf').addEventListener('click', () => { elegirPestana('tab-pdf'); window.print(); });
 $('btn-nueva').addEventListener('click', nuevaCotizacion);
+$('btn-historial').addEventListener('click', alternarHistorial);
+// Todo lo que se escribe o se tilda se guarda solo, también al salir de la página.
+document.querySelector('main').addEventListener('input', guardarPronto);
+document.querySelector('main').addEventListener('change', guardarPronto);
+window.addEventListener('pagehide', guardarAhora);
+document.addEventListener('visibilitychange', () => { if (document.hidden) guardarAhora(); });
+iniciarHistorial();
 $('btn-salir').addEventListener('click', async () => { await pedir('/api/salir').catch(() => {}); window.location.href = '/entrar.html'; });
