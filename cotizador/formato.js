@@ -67,7 +67,7 @@ export function cierre({ autos, rango, sunPass, sunPassAjustado = false }) {
     parrafos.push(`Como el alquiler es de ${DESCUENTO_DESDE_DIAS} días o más, ya tiene aplicado un ${DESCUENTO_PORCENTAJE}% de descuento sobre el alquiler.`);
   }
   if (sunPass?.esEstimado && !sunPassAjustado) {
-    parrafos.push(`El cargo de SunPass estimado es de USD ${formatoUSD(sunPass.monto)} (tarifa base para Miami). Puede variar según los destinos que visites durante tu viaje.`);
+    parrafos.push(`El cargo de SunPass estimado es de USD ${formatoUSD(sunPass.monto)} (tarifa estimada para Miami). Puede variar según los destinos que visites durante tu viaje.`);
   }
   parrafos.push(AVISO_COTIZACION);
   parrafos.push(autos.length === 1 ? '¿Te sirve esta opción?' : '¿Alguna de estas opciones te sirve?');

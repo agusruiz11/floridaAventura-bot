@@ -110,7 +110,9 @@ export function cargoSunPass(dias, destinos) {
   if (!reconocidos.length) {
     return {
       monto: Math.ceil(dias / 7) * 15,
-      detalle: 'tarifa base Miami (estimada: puede variar según los destinos del viaje)',
+      // Sin la palabra "base": el prompt la prohíbe (el cliente la lee como "precio
+      // de entrada") y el modelo copia este texto tal cual en la respuesta.
+      detalle: 'tarifa estimada para Miami (puede variar según los destinos del viaje)',
       esEstimado: true,
     };
   }

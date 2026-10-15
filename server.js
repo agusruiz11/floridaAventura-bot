@@ -55,7 +55,7 @@ const TOOLS = [
           description:
             'Destinos fuera de Miami que el cliente dijo que va a visitar (ej: ["Orlando", "Naples"]). ' +
             'Sirve para calcular el cargo de SunPass. Omitilo si el cliente todavía no mencionó destinos: ' +
-            'en ese caso se usa la tarifa base de Miami. Opcional.',
+            'en ese caso se usa la tarifa estimada para Miami. Opcional.',
         },
         puertoDeCruceros: {
           type: 'boolean',

@@ -45,7 +45,8 @@ test('cierre: horarios estimados, SunPass estimado, descuento y aviso', () => {
   const texto = cierre({ autos, rango, sunPass });
   assert.ok(texto.includes('Coticé con retiro a las 07:00 y devolución a las 20:00.'));
   assert.ok(texto.includes('ya tiene aplicado un 10% de descuento sobre el alquiler'));
-  assert.ok(texto.includes(`El cargo de SunPass estimado es de USD ${sunPass.monto}`));
+  assert.ok(texto.includes(`El cargo de SunPass estimado es de USD ${sunPass.monto} (tarifa estimada para Miami)`));
+  assert.doesNotMatch(texto, /\bbase\b/i);
   assert.ok(texto.includes('📋 Estos valores son una estimación orientativa.'));
   assert.ok(texto.endsWith('¿Te sirve esta opción?'));
 });
@@ -70,4 +71,12 @@ test('un mensaje por auto más el cierre, ninguno pasa de 950 caracteres', () =>
 
 test('nombre sin año', () => {
   assert.equal(nombreAuto({ name: 'Nissan Kicks' }), 'Nissan Kicks');
+});
+
+// El bot copia sunPassDetalle en la respuesta, y el prompt prohíbe "base" para precios.
+test('el detalle del SunPass estimado no dice "base"', () => {
+  const rango = prepararRango('2027-09-01T07:00:00', '2027-09-11T20:00:00');
+  const sunPass = cargoSunPass(rango.dias, []);
+  assert.equal(sunPass.detalle, 'tarifa estimada para Miami (puede variar según los destinos del viaje)');
+  assert.doesNotMatch(cotizarAuto(HRV, rango.dias, sunPass, false).sunPassDetalle, /\bbase\b/i);
 });
