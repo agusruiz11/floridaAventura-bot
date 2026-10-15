@@ -9,6 +9,44 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// ─── Parámetros del modelo (los mismos que runBot en server.js) ──────────────
+
+// Un eval que llama al modelo distinto que producción mide otra cosa: con 2048 de
+// max_tokens y sin effort explícito, las cotizaciones salían cortadas a mitad de
+// la lista de autos y cada modelo corría con su effort por defecto.
+// BOT_MODEL y BOT_EFFORT son las mismas variables (y defaults) que lee server.js.
+// EVAL_MAX_TOKENS y EVAL_THINKING existen solo acá: el server los tiene fijos.
+const MODEL = process.env.BOT_MODEL || 'claude-sonnet-5';
+const EFFORT = process.env.BOT_EFFORT || 'high';
+const MAX_TOKENS = Number(process.env.EVAL_MAX_TOKENS || 8192);
+const THINKING = process.env.EVAL_THINKING || 'adaptive';
+
+// ─── Fechas relativas en el dataset ──────────────────────────────────────────
+
+// {{fecha:+N}} en el input se reemplaza por "D de mes", contado desde la misma
+// fecha que se inyecta en el system prompt. Así un caso como "desde hoy ..." no
+// queda desfasado de la fecha que ve el modelo.
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+// Copia de floridaDateStr de server.js (no se puede importar: importar server.js
+// levanta el servidor). Misma zona y misma variable IG_TZ, así el eval ve el mismo
+// "hoy" que el bot; en UTC, después de las 20hs de Florida ya era mañana.
+const IG_TZ = process.env.IG_TZ || 'America/New_York';
+
+function floridaDateStr() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: IG_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
+function renderFechas(texto, today) {
+  return texto.replace(/\{\{fecha:([+-]\d+)\}\}/g, (_, offset) => {
+    const d = new Date(`${today}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + Number(offset));
+    return `${d.getUTCDate()} de ${MESES[d.getUTCMonth()]}`;
+  });
+}
+
 // ─── Argumentos --categoria y --casos ────────────────────────────────────────
 
 const args = process.argv.slice(2);
@@ -79,8 +117,48 @@ const MOCK_CARS = [
 
 // ─── Mock tool executor ───────────────────────────────────────────────────────
 
+// Copia de floridaTodayISO y errorFechasPasadas de server.js (no se pueden
+// importar sin levantar el server). Sin este chequeo, una búsqueda con un año
+// ya pasado (julio 2026 consultado en octubre 2026) cotizaba normal en el eval
+// y daba PASS, cuando en producción se corta y el modelo tiene que confirmar el año.
+function floridaTodayISO() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.FA_TIMEZONE || 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+}
+
+function errorFechasPasadas(startDateTime, endDateTime) {
+  const hoy = floridaTodayISO();
+  const inicio = startDateTime.slice(0, 10);
+  const fin = endDateTime.slice(0, 10);
+  if (inicio < hoy) {
+    return `La fecha de retiro ${inicio} ya pasó (hoy es ${hoy}). Probablemente el cliente se refiere al año siguiente: confirmá con él el año exacto y volvé a buscar. No le digas que no hay disponibilidad.`;
+  }
+  if (fin < inicio) {
+    return `La fecha de devolución ${fin} es anterior a la de retiro ${inicio}. Confirmá las fechas con el cliente y volvé a buscar.`;
+  }
+  return null;
+}
+
 function executeMockTool(toolName, toolInput, caseId) {
   if (toolName !== 'buscar_autos') throw new Error(`Herramienta desconocida: ${toolName}`);
+
+  // Mismo camino y mismo orden que executeTool en server.js: validación de
+  // fechas y mínimo primero, después la "API" (acá C5 falla y C6 viene vacía).
+  // Con fechas, cada auto sale cotizado (dias, precioBase, sunPass, total y la
+  // línea 💵). Sin fechas, catálogo pelado. Las funciones son las de
+  // cotizacion.js, las mismas que corren en producción: si el eval cotizara por
+  // su cuenta, podría dar PASS con una cuenta que el server hace distinto.
+  const { startDateTime, endDateTime, destinos, puertoDeCruceros } = toolInput || {};
+  let rango = null;
+  if (startDateTime && endDateTime) {
+    rango = prepararRango(startDateTime, endDateTime);
+    const errorFechas = errorFechasPasadas(rango.startDateTime, rango.endDateTime);
+    if (errorFechas) return JSON.stringify({ error: errorFechas });
+    if (rango.dias == null) return JSON.stringify({ error: 'La devolución tiene que ser posterior al retiro. Confirmá fechas y horarios con el cliente.' });
+    if (rango.dias < MINIMO_DIAS) return JSON.stringify(respuestaMinimoNoCumplido(rango));
+  }
 
   if (caseId === 'C5') {
     throw new Error('Florida Aventura API error: 503 Service Unavailable');
@@ -89,16 +167,7 @@ function executeMockTool(toolName, toolInput, caseId) {
     return JSON.stringify([]);
   }
 
-  // Mismo camino que server.js: con fechas, cada auto sale cotizado (dias,
-  // precioBase, sunPass, total y la línea 💵). Sin fechas, catálogo pelado.
-  // Las funciones son las de cotizacion.js, las mismas que corren en producción:
-  // si el eval cotizara por su cuenta, podría dar PASS con una cuenta que el
-  // server hace distinto — que es justo lo que hay que detectar acá.
-  const { startDateTime, endDateTime, destinos, puertoDeCruceros } = toolInput || {};
-  if (!(startDateTime && endDateTime)) return JSON.stringify(MOCK_CARS);
-  const rango = prepararRango(startDateTime, endDateTime);
-  if (rango.dias == null) return JSON.stringify({ error: 'La devolución tiene que ser posterior al retiro.' });
-  if (rango.dias < MINIMO_DIAS) return JSON.stringify(respuestaMinimoNoCumplido(rango));
+  if (!rango) return JSON.stringify(MOCK_CARS);
 
   const sunPass = cargoSunPass(rango.dias, destinos);
   return JSON.stringify(MOCK_CARS.map((car) => ({
@@ -116,6 +185,15 @@ function checkKeywords(text, keywords) {
   return keywords.filter(kw => lower.includes(kw.toLowerCase()));
 }
 
+// keywords_fail_condicional: [{ si_aparece: [...], y_falta: [...] }] → FAIL si
+// aparece alguna de si_aparece y ninguna de y_falta. Ej. C7: cotizar (USD) sin
+// derivar (wa.me / Patricia). Devuelve descripciones para keywords_fail_encontradas.
+function checkCondicionales(text, reglas = []) {
+  return reglas
+    .filter(r => checkKeywords(text, r.si_aparece).length > 0 && checkKeywords(text, r.y_falta).length === 0)
+    .map(r => `${r.si_aparece.join('/')} sin ${r.y_falta.join('/')}`);
+}
+
 function getAutoResult(passFound, failFound) {
   if (failFound.length > 0) return 'FAIL';
   if (passFound.length > 0) return 'PASS';
@@ -124,8 +202,7 @@ function getAutoResult(passFound, failFound) {
 
 // ─── Run a single case ────────────────────────────────────────────────────────
 
-async function runCase(caso) {
-  const today = new Date().toISOString().split('T')[0];
+async function runCase(caso, input, today) {
   // Misma estructura que server.js: el prompt estable primero y con cache_control,
   // la fecha DESPUES del breakpoint. Si la fecha fuera arriba invalidaria el cache
   // del prompt entero, que es lo que hace cara cada corrida del eval.
@@ -139,21 +216,38 @@ async function runCase(caso) {
 
   let currentMessages = [
     ...(caso.historial_previo || []),
-    { role: 'user', content: caso.input },
+    { role: 'user', content: input },
   ];
 
   let finalText = '';
+  const metricas = {
+    ms: 0,
+    llamadas_api: 0,
+    input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+    output_tokens: 0,
+    stop_reasons: [],
+    buscar_autos: [],
+  };
+  const t0 = Date.now();
 
   while (true) {
     const response = await client.messages.create({
-      // Mismo modelo que produccion (server.js): un eval que corre otro modelo
-      // no dice nada sobre el bot que atiende clientes.
-      model: process.env.BOT_MODEL || 'claude-sonnet-5',
-      max_tokens: 2048,
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
       system,
       tools: TOOLS,
       messages: currentMessages,
+      thinking: { type: THINKING },
+      output_config: { effort: EFFORT },
     });
+
+    metricas.llamadas_api++;
+    metricas.stop_reasons.push(response.stop_reason);
+    for (const k of ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens']) {
+      metricas[k] += response.usage?.[k] ?? 0;
+    }
 
     if (response.stop_reason === 'end_turn') {
       finalText = response.content
@@ -169,6 +263,7 @@ async function runCase(caso) {
       const toolResults = [];
       for (const block of response.content) {
         if (block.type !== 'tool_use') continue;
+        if (block.name === 'buscar_autos') metricas.buscar_autos.push(block.input);
 
         let toolContent;
         try {
@@ -188,7 +283,7 @@ async function runCase(caso) {
       continue;
     }
 
-    // stop_reason inesperado
+    // stop_reason inesperado (max_tokens, refusal): queda registrado en metricas
     finalText = response.content
       .filter(b => b.type === 'text')
       .map(b => b.text)
@@ -196,7 +291,8 @@ async function runCase(caso) {
     break;
   }
 
-  return finalText;
+  metricas.ms = Date.now() - t0;
+  return { texto: finalText, metricas };
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -219,37 +315,49 @@ async function main() {
     process.exit(1);
   }
 
+  // Una sola fecha para toda la corrida: la usan el system prompt y {{fecha:+N}}.
+  const today = floridaDateStr();
+  const config = { model: MODEL, effort: EFFORT, thinking: THINKING, max_tokens: MAX_TOKENS, fecha: today };
+
   console.log(
-    `\nEvaluando ${casos.length} caso(s)${categoriaFiltro ? ` (categoría ${categoriaFiltro})` : ''}...\n`
+    `\nEvaluando ${casos.length} caso(s)${categoriaFiltro ? ` (categoría ${categoriaFiltro})` : ''}...`
   );
+  console.log(`Modelo ${MODEL} | effort ${EFFORT} | thinking ${THINKING} | max_tokens ${MAX_TOKENS}\n`);
 
   const results = [];
 
   for (let i = 0; i < casos.length; i++) {
     const caso = casos[i];
+    const input = renderFechas(caso.input, today);
     process.stdout.write(`Evaluando ${caso.id} (${i + 1}/${casos.length})... `);
 
     let respuesta = '';
+    let metricas = null;
     try {
-      respuesta = await runCase(caso);
+      ({ texto: respuesta, metricas } = await runCase(caso, input, today));
     } catch (err) {
       respuesta = `[ERROR AL LLAMAR LA API: ${err.message}]`;
     }
 
     const passFound = checkKeywords(respuesta, caso.keywords_pass);
-    const failFound = checkKeywords(respuesta, caso.keywords_fail);
+    const failFound = [
+      ...checkKeywords(respuesta, caso.keywords_fail),
+      ...checkCondicionales(respuesta, caso.keywords_fail_condicional),
+    ];
     const autoResult = getAutoResult(passFound, failFound);
 
-    console.log(autoResult);
+    const cortada = metricas?.stop_reasons.includes('max_tokens') ? ' (cortada por max_tokens)' : '';
+    console.log(`${autoResult}${cortada}`);
 
     results.push({
       id: caso.id,
       categoria: caso.categoria,
-      input: caso.input,
+      input,
       respuesta,
       keywords_pass_encontradas: passFound,
       keywords_fail_encontradas: failFound,
       auto_result: autoResult,
+      metricas,
       pass_manual: null,
       notas: '',
     });
@@ -268,12 +376,29 @@ async function main() {
     };
   }
 
+  const medidos = results.filter(r => r.metricas);
+  const suma = k => medidos.reduce((acc, r) => acc + r.metricas[k], 0);
+  const masLento = medidos.reduce((a, r) => (!a || r.metricas.ms > a.metricas.ms ? r : a), null);
+
   const resumen = {
+    config,
     total: results.length,
     auto_pass: results.filter(r => r.auto_result === 'PASS').length,
     auto_fail: results.filter(r => r.auto_result === 'FAIL').length,
     review: results.filter(r => r.auto_result === 'REVIEW').length,
     por_categoria: porCategoria,
+    metricas: {
+      ms_promedio: medidos.length ? Math.round(suma('ms') / medidos.length) : null,
+      ms_max: masLento?.metricas.ms ?? null,
+      ms_max_caso: masLento?.id ?? null,
+      llamadas_api: suma('llamadas_api'),
+      input_tokens: suma('input_tokens'),
+      cache_creation_input_tokens: suma('cache_creation_input_tokens'),
+      cache_read_input_tokens: suma('cache_read_input_tokens'),
+      output_tokens: suma('output_tokens'),
+      llamadas_buscar_autos: medidos.reduce((acc, r) => acc + r.metricas.buscar_autos.length, 0),
+      cortadas_por_max_tokens: medidos.filter(r => r.metricas.stop_reasons.includes('max_tokens')).map(r => r.id),
+    },
   };
 
   // ─── Guardar resultados ───────────────────────────────────────────────────
@@ -296,6 +421,10 @@ async function main() {
   for (const [cat, counts] of Object.entries(resumen.por_categoria)) {
     console.log(`  ${cat}: PASS ${counts.pass} | FAIL ${counts.fail} | REVIEW ${counts.review}`);
   }
+  const m = resumen.metricas;
+  console.log(`\nDemora por caso: promedio ${(m.ms_promedio / 1000).toFixed(1)}s | máx ${(m.ms_max / 1000).toFixed(1)}s (${m.ms_max_caso})`);
+  console.log(`Tokens: input ${m.input_tokens} | cache write ${m.cache_creation_input_tokens} | cache read ${m.cache_read_input_tokens} | output ${m.output_tokens}`);
+  console.log(`buscar_autos: ${m.llamadas_buscar_autos} llamadas | cortadas por max_tokens: ${m.cortadas_por_max_tokens.join(', ') || 'ninguna'}`);
   console.log(`\nResultados guardados en: ${filename}\n`);
 }
 

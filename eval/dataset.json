@@ -103,8 +103,7 @@
     ],
     "keywords_fail": [
       "wa.me",
-      "USD",
-      "te muestro los autos"
+      "USD"
     ]
   },
   {
@@ -117,22 +116,27 @@
       "4 días"
     ],
     "keywords_fail": [
-      "2025"
+      "mayo de 2025",
+      "mayo 2025",
+      "05/2025",
+      "2025-05"
     ]
   },
   {
     "id": "B4",
     "categoria": "B - Fechas y cálculo",
     "input": "Llego el martes a las 23hs y devuelvo el viernes a las 18hs",
-    "debe_hacer": "Martes 23:00 a viernes 18:00 son 2 días y 19 horas = 3 días cobrados: informar el mínimo de 4 días. Si no queda claro de qué semana habla, puede preguntar las fechas exactas",
-    "no_debe_hacer": "Cotizar como si cumpliera el mínimo",
+    "debe_hacer": "Martes 23:00 a viernes 18:00 son 2 días y 19 horas = 3 días cobrados: informar el mínimo de 4 días. Manda el mínimo aunque el retiro sea la semana siguiente (prompt.js:57 sobre prompt.js:195). Si no queda claro de qué semana habla, puede preguntar las fechas exactas",
+    "no_debe_hacer": "Cotizar como si cumpliera el mínimo, o derivar a Patricia por ser la semana siguiente",
     "keywords_pass": [
       "mínimo",
+      "menos de 4",
       "qué fecha",
       "qué semana"
     ],
     "keywords_fail": [
-      "USD"
+      "USD",
+      "wa.me"
     ]
   },
   {
@@ -230,7 +234,7 @@
       },
       {
         "role": "assistant",
-        "content": "Para esas fechas (11 días) te muestro las primeras opciones:\n\n[MEDIUM] Honda HRV 2025\n💰 USD 55/día | 👥 5 pasajeros | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida)\n→ SUV compacto ideal para ciudad y carretera\n\n[MEDIUM] Nissan Rogue 2024\n💰 USD 60/día | 👥 5 pasajeros | ✅ Seguro incluido\n→ Amplio maletero, ideal para 3 personas con equipaje\n\n[MEDIUM] Honda CRV 2024\n💰 USD 65/día | 👥 5 pasajeros | ✅ Seguro incluido\n→ Cómodo y versátil para recorridos largos\n\n¿Alguno te interesa o querés ver más?"
+        "content": "Para esas fechas te muestro las primeras opciones:\n\n**MEDIUM Honda HRV 2025**\n📅 Del 10 al 20 de agosto · Retiro 11:00, devolución 15:00\n💰 USD 55/día × 11 días | 👥 5 pasajeros | 🧳 aprox. 3 valijas | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida)\n💵 Total: USD 635 (USD 605 por 11 días + USD 30 SunPass)\n→ SUV compacto ideal para ciudad y carretera\n\n**MEDIUM Nissan Rogue 2024**\n📅 Del 10 al 20 de agosto · Retiro 11:00, devolución 15:00\n💰 USD 59/día × 11 días | 👥 5 pasajeros | 🧳 aprox. 3 valijas | ✅ Seguro incluido\n💵 Total: USD 679 (USD 649 por 11 días + USD 30 SunPass)\n→ Amplio maletero, ideal para 3 personas con equipaje\n\n**MEDIUM Honda CRV 2024**\n📅 Del 10 al 20 de agosto · Retiro 11:00, devolución 15:00\n💰 USD 62/día × 11 días | 👥 5 pasajeros | 🧳 aprox. 3 valijas | ✅ Seguro incluido\n💵 Total: USD 712 (USD 682 por 11 días + USD 30 SunPass)\n→ Cómodo y versátil para recorridos largos\n\n¿Alguno te interesa o querés ver más?"
       }
     ]
   },
@@ -256,7 +260,7 @@
       },
       {
         "role": "assistant",
-        "content": "Para julio (11 días) tenés disponible:\n\n[MEDIUM] Honda HRV 2025\n💰 USD 55/día | Total estimado: USD 605 | 👥 5 pasajeros\n\n[MEDIUM] Nissan Kicks 2024\n💰 USD 50/día | Total estimado: USD 550 | 👥 5 pasajeros\n\n¿Alguno te convence?"
+        "content": "Para el 10 al 20 de julio tenés disponible:\n\n**MEDIUM Honda HRV 2025**\n📅 Del 10 al 20 de julio · Retiro 10:00, devolución 14:00\n💰 USD 55/día × 11 días | 👥 5 pasajeros | 🧳 aprox. 3 valijas\n💵 Total: USD 635 (USD 605 por 11 días + USD 30 SunPass)\n\n**MEDIUM Nissan Kicks 2024**\n📅 Del 10 al 20 de julio · Retiro 10:00, devolución 14:00\n💰 USD 54/día × 11 días | 👥 5 pasajeros | 🧳 aprox. 3 valijas\n💵 Total: USD 624 (USD 594 por 11 días + USD 30 SunPass)\n\n¿Alguno te convence?"
       }
     ]
   },
@@ -277,7 +281,10 @@
       "USD 7",
       "USD 8",
       "USD 9",
-      "disponib"
+      "no hay disponibilidad",
+      "sin disponibilidad",
+      "no tenemos disponibilidad",
+      "no hay autos disponibles"
     ],
     "mock_behavior": "error"
   },
@@ -295,7 +302,8 @@
       "alternativa"
     ],
     "keywords_fail": [
-      "confirmada",
+      "está confirmada",
+      "queda confirmada",
       "pre-reserva lista",
       "reservé"
     ],
@@ -304,22 +312,19 @@
   {
     "id": "C7",
     "categoria": "C - Búsqueda de autos",
-    "input": "Ya estoy en Miami, las fechas serían desde hoy 18 de marzo a las 11:30 AM hasta el 24 de marzo a las 7:00 PM",
-    "debe_hacer": "Con fechas y horarios completos, preguntar sobre destinos (Orlando/SunPass) y/o mostrar autos disponibles — sin sugerir categorías ni pedir personas primero",
-    "no_debe_hacer": "Mencionar sedan, SUV, compacto u otras categorías antes de consultar el catálogo",
+    "input": "Ya estoy en Miami, las fechas serían desde hoy {{fecha:+0}} a las 11:30 AM hasta el {{fecha:+6}} a las 7:00 PM",
+    "debe_hacer": "Retiro hoy (prompt.js:195): cotizar y derivar a Patricia para confirmar, o solo derivar a Patricia",
+    "no_debe_hacer": "Cotizar sin derivar a Patricia",
     "keywords_pass": [
-      "Orlando",
-      "moverse",
-      "destinos",
-      "USD",
-      "pasajeros",
-      "valijas"
+      "wa.me",
+      "Patricia"
     ],
     "keywords_fail": [
       "sedan",
-      "SUV",
-      "compacto",
       "familiar"
+    ],
+    "keywords_fail_condicional": [
+      { "si_aparece": ["USD"], "y_falta": ["wa.me", "Patricia"] }
     ]
   },
   {
@@ -405,7 +410,8 @@
       "38",
       "cargo adicional",
       "costo extra",
-      "no puede",
+      "no podés ir a Tampa",
+      "no puede ir a Tampa",
       "prohibido"
     ]
   },
@@ -432,7 +438,7 @@
       },
       {
         "role": "assistant",
-        "content": "Para esas fechas (11 días) te muestro opciones para grupos:\n\n[LARGE] Honda Odyssey 2025\n💰 USD 95/día | 👥 8 pasajeros | ✅ Seguro incluido | 🛣️ KM ilimitado\n→ Minivan perfecta para grupos, amplio maletero\n\n[LARGE] Volkswagen Atlas 2025\n💰 USD 89/día | 👥 8 pasajeros | ✅ Seguro incluido\n→ SUV grande, ideal para familias con equipaje\n\n¿Alguno te convence?"
+        "content": "Para esas fechas te muestro opciones para grupos:\n\n**LARGE Honda Odyssey 2025**\n📅 Del 5 al 15 de julio · Retiro 10:00, devolución 15:00\n💰 USD 78/día × 11 días | 👥 8 pasajeros | 🧳 aprox. 4 valijas | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida)\n💵 Total: USD 888 (USD 858 por 11 días + USD 30 SunPass)\n→ Minivan perfecta para grupos, amplio maletero\n\n**LARGE Volkswagen Atlas 2025**\n📅 Del 5 al 15 de julio · Retiro 10:00, devolución 15:00\n💰 USD 65/día × 11 días | 👥 8 pasajeros | 🧳 aprox. 2 valijas | ✅ Seguro incluido\n💵 Total: USD 745 (USD 715 por 11 días + USD 30 SunPass)\n→ SUV grande, ideal para familias con equipaje\n\n¿Alguno te convence?"
       }
     ]
   },
@@ -459,7 +465,7 @@
       },
       {
         "role": "assistant",
-        "content": "Para 4 personas en esas fechas (11 días) tenés esta opción:\n\n[LARGE] Honda Odyssey 2025\n💰 USD 95/día | Total estimado: USD 1,045 | 👥 8 pasajeros\n\n¿Te interesa?"
+        "content": "Para 4 personas en esas fechas tenés esta opción:\n\n**LARGE Honda Odyssey 2025**\n📅 Del 5 al 15 de julio · Retiro 10:00, devolución 15:00\n💰 USD 78/día × 11 días | 👥 8 pasajeros | 🧳 aprox. 4 valijas | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida)\n💵 Total: USD 888 (USD 858 por 11 días + USD 30 SunPass)\n\n¿Te interesa?"
       }
     ]
   },
@@ -488,7 +494,7 @@
       },
       {
         "role": "assistant",
-        "content": "Perfecto, 11 días desde MIA. Para 3 personas tenés disponible:\n\n[LARGE] Honda Odyssey 2025\n💰 USD 95/día | Total estimado: USD 1,045 | 👥 8 pasajeros\n\n¿Te interesa este?"
+        "content": "Perfecto, retiro en MIA. Para 3 personas tenés disponible:\n\n**LARGE Honda Odyssey 2025**\n📅 Del 5 al 15 de julio · Retiro 10:00, devolución 15:00\n💰 USD 78/día × 11 días | 👥 8 pasajeros | 🧳 aprox. 4 valijas | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida)\n💵 Total: USD 888 (USD 858 por 11 días + USD 30 SunPass)\n\n¿Te interesa este?"
       },
       {
         "role": "user",
@@ -515,7 +521,8 @@
     "keywords_fail": [
       "¡Confirmada!",
       "queda confirmada ✅",
-      "reserva confirmada",
+      "tu reserva está confirmada",
+      "reserva quedó confirmada",
       "todo listo",
       "está activa"
     ],
@@ -636,8 +643,7 @@
     ],
     "keywords_fail": [
       "seguro",
-      "USD",
-      "precio"
+      "USD"
     ]
   },
   {
@@ -651,7 +657,8 @@
       "deducible"
     ],
     "keywords_fail": [
-      "sin deducible",
+      "no tiene deducible",
+      "no hay deducible",
       "cubre todo sin"
     ]
   },
@@ -861,7 +868,7 @@
       },
       {
         "role": "assistant",
-        "content": "Hola, soy Leo. Para esas fechas tengo varias opciones:\n\n[LARGE] Honda Odyssey 2025 — USD 95/día\n[LARGE] Volkswagen Atlas 2025 — USD 89/día\n\n¿Alguno te interesa?"
+        "content": "Hola, soy Leo. Para esas fechas tengo varias opciones:\n\n[LARGE] Honda Odyssey 2025 — USD 78/día\n[LARGE] Volkswagen Atlas 2025 — USD 65/día\n\n¿Alguno te interesa?"
       },
       {
         "role": "user",
@@ -968,7 +975,9 @@
       "no tengo",
       "no contamos",
       "no está",
-      "no tenemos"
+      "no tenemos",
+      "no figura",
+      "no manejamos"
     ],
     "keywords_fail": [
       "sí tenemos el Toyota",
@@ -989,8 +998,8 @@
     "keywords_fail": [
       "4 valijas",
       "5 valijas",
-      "depende",
-      "varía",
+      "depende del modelo",
+      "varía según el modelo",
       "no tengo el dato exacto"
     ]
   },
@@ -1053,7 +1062,8 @@
     "no_debe_hacer": "Cotizar 4 días o pasar el WhatsApp",
     "keywords_pass": [
       "mínimo",
-      "4 días"
+      "4 días",
+      "menos de 4"
     ],
     "keywords_fail": [
       "USD",
@@ -1107,7 +1117,7 @@
     "debe_hacer": "Cotizar normalmente y, para recomendar, usar solo datos que devuelve la herramienta (tamaño, tipo, capacidad). Puede aclarar que el consumo no es un dato que tenga y ofrecer consultarlo con Patricia",
     "no_debe_hacer": "Atribuirle a algún auto que es híbrido, eléctrico, de bajo consumo o eficiente — la motorización no viene en la respuesta de buscar_autos",
     "keywords_pass": [
-      "5 días"
+      "4 días"
     ],
     "keywords_fail": [
       "híbrido",

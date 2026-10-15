@@ -6,7 +6,7 @@ Eval de nivel 2: el script manda cada caso al bot real (misma API, mismo system 
 
 ```
 eval/
-├── dataset.json     # 50 casos de prueba organizados por categoría
+├── dataset.json     # 59 casos de prueba organizados por categoría
 ├── run-eval.js      # Script principal: corre los casos y genera el reporte
 ├── review.js        # Script interactivo de revisión manual
 ├── results/         # Archivos JSON generados (YYYY-MM-DD-HH-mm.json)
@@ -21,7 +21,7 @@ eval/
 node eval/run-eval.js
 ```
 
-Corre los 50 casos, muestra progreso en consola y guarda los resultados en `eval/results/`.
+Corre los 59 casos, muestra progreso en consola y guarda los resultados en `eval/results/`.
 
 ### 2. Correr solo una categoría
 
@@ -76,14 +76,14 @@ Cada caso tiene tres campos de resultado:
 | Cat | Tema | Casos |
 |---|---|---|
 | A | Primer contacto | A1–A4 |
-| B | Fechas y cálculo de días | B1–B7 |
-| C | Búsqueda de autos | C1–C7 |
+| B | Fechas y cálculo de días | B1–B13 |
+| C | Búsqueda de autos | C1–C8 |
 | D | Destinos y SunPass | D1–D5 |
 | E | Pre-reserva | E1–E5 |
 | F | Precios y negociación | F1–F4 |
 | G | Preguntas frecuentes | G1–G6 |
 | H | Límites del bot | H1–H8 |
-| I | Alucinaciones | I1–I4 |
+| I | Alucinaciones | I1–I6 |
 
 ## Casos especiales
 
@@ -111,9 +111,29 @@ Cada caso tiene tres campos de resultado:
 Campos opcionales:
 - `historial_previo`: array de `{role, content}` para simular contexto previo
 - `mock_behavior`: `"error"` (buscar_autos falla) o `"empty"` (devuelve sin autos)
+- `keywords_fail_condicional`: `[{ "si_aparece": [...], "y_falta": [...] }]` → FAIL si aparece alguna de `si_aparece` y ninguna de `y_falta` (ej. C7: cotizar con `USD` sin derivar con `wa.me`/`Patricia`)
+
+Fechas relativas: en `input`, `{{fecha:+N}}` se reemplaza por "D de mes" contando N días desde la fecha que el eval inyecta en el system prompt (ej: `desde hoy {{fecha:+0}} hasta el {{fecha:+6}}`). Usalo en todo caso que dependa de "hoy".
+
+## Parámetros del modelo
+
+Por defecto el eval llama al modelo igual que `runBot` en `server.js`. Se pueden cambiar por entorno:
+
+| Variable | Default | Notas |
+|---|---|---|
+| `BOT_MODEL` | `claude-sonnet-5` | Misma variable que lee `server.js` |
+| `BOT_EFFORT` | `high` | Misma variable que lee `server.js` (`output_config.effort`) |
+| `EVAL_MAX_TOKENS` | `8192` | Solo eval; en `server.js` está fijo en 8192 |
+| `EVAL_THINKING` | `adaptive` | Solo eval; en `server.js` está fijo en `adaptive` |
+
+```bash
+BOT_MODEL=claude-opus-5-5 BOT_EFFORT=medium node eval/run-eval.js --categoria B
+```
+
+Cada caso guarda en `metricas` la demora, los tokens, los `stop_reason` y las llamadas a `buscar_autos`; el `resumen` trae la config usada y los totales, incluidas las respuestas cortadas por `max_tokens`.
 
 ## Notas técnicas
 
-- El mock de `buscar_autos` devuelve 3 autos ficticios realistas (Honda HRV, Honda Odyssey, VW Atlas) para que el bot pueda responder naturalmente en los casos que requieren búsqueda.
-- El script usa la misma API, model, system prompt y agentic loop que `server.js`. El modelo sale de `BOT_MODEL` (con el mismo default que el server), así que eval y producción no se pueden desincronizar.
+- El mock de `buscar_autos` devuelve la flota real (12 autos) cotizada con las mismas funciones de `cotizacion.js` que usa el server.
+- El script usa la misma API, model, parámetros, system prompt y agentic loop que `server.js`. Si cambiás los parámetros de `runBot`, cambialos también acá.
 - Los resultados se acumulan en `eval/results/` — nunca se sobreescriben.
