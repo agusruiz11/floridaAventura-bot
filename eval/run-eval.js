@@ -365,6 +365,12 @@ async function main() {
       ...checkKeywords(respuesta, caso.keywords_fail),
       ...checkCondicionales(respuesta, caso.keywords_fail_condicional),
     ];
+    // max_bloques (opcional): FAIL si hay más bloques completos de auto
+    // (**SMALL|MEDIUM|LARGE nombre**) que los permitidos. En Instagram son 3.
+    if (typeof caso.max_bloques === 'number') {
+      const bloques = (respuesta.match(/\*\*(SMALL|MEDIUM|LARGE)\s/g) || []).length;
+      if (bloques > caso.max_bloques) failFound.push(`${bloques} bloques de auto (máx ${caso.max_bloques})`);
+    }
     // debe_buscar (opcional): FAIL si el modelo llamó, o no, a buscar_autos.
     if (typeof caso.debe_buscar === 'boolean' && metricas) {
       const busco = metricas.buscar_autos.length > 0;

@@ -646,6 +646,26 @@ function chunkText(text, max = 950) {
   return chunks;
 }
 
+// Junta párrafos enteros en mensajes de hasta `max` caracteres. Un párrafo que
+// solo ya no entra se parte por líneas con chunkText.
+function packParagraphs(text, max = 950) {
+  const chunks = [];
+  let cur = '';
+  for (const para of text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean)) {
+    if (para.length > max) {
+      if (cur) { chunks.push(cur); cur = ''; }
+      chunks.push(...chunkText(para, max));
+    } else if (cur && (cur + '\n\n' + para).length > max) {
+      chunks.push(cur);
+      cur = para;
+    } else {
+      cur = cur ? `${cur}\n\n${para}` : para;
+    }
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
 // ─── Token de Instagram ──────────────────────────────────────────────────────
 // El token de Instagram Login dura 60 días y Meta no avisa cuando vence: el bot
 // sigue recibiendo mensajes pero todo envío rebota con code 190 (15/9/2026).
@@ -945,7 +965,9 @@ function buildIgOutbound(result, leadNote = '', trailNote = '') {
     pushImage(url);
   });
 
-  if (outro.trim()) pushText(outro);
+  // El cierre (lista corta del resto de los autos, disclaimer, pregunta) se arma
+  // por párrafos para no partir la lista entre dos mensajes.
+  for (const parte of packParagraphs(formatForInstagram(outro))) outbound.push({ text: parte });
   if (trailNote) outbound.push({ text: trailNote });
   return outbound;
 }

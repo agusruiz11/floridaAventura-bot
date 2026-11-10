@@ -324,7 +324,15 @@
       "familiar"
     ],
     "keywords_fail_condicional": [
-      { "si_aparece": ["USD"], "y_falta": ["wa.me", "Patricia"] }
+      {
+        "si_aparece": [
+          "USD"
+        ],
+        "y_falta": [
+          "wa.me",
+          "Patricia"
+        ]
+      }
     ]
   },
   {
@@ -1178,7 +1186,8 @@
     "keywords_fail": [
       "antes de buscar",
       "¿Retiran el auto"
-    ]
+    ],
+    "max_bloques": 3
   },
   {
     "id": "J2",
@@ -1193,7 +1202,8 @@
     ],
     "keywords_fail": [
       "antes de buscar"
-    ]
+    ],
+    "max_bloques": 3
   },
   {
     "id": "J3",
@@ -1209,6 +1219,22 @@
     ],
     "keywords_fail": [
       "USD"
+    ]
+  },
+  {
+    "id": "J4",
+    "categoria": "J - Instagram",
+    "canal": "instagram",
+    "input": "Hola! Necesito un auto del 10 al 20 de marzo, somos 2. Qué tienen disponible?",
+    "debe_hacer": "Buscar, mostrar 3 autos con bloque completo y el resto de los disponibles en una lista corta (una línea por auto con total), y cerrar con una sola pregunta",
+    "no_debe_hacer": "Mostrar más de 3 bloques completos, o decir que hay más opciones sin listarlas",
+    "debe_buscar": true,
+    "max_bloques": 3,
+    "keywords_pass": [
+      "Otras opciones disponibles"
+    ],
+    "keywords_fail": [
+      "antes de buscar"
     ]
   }
 ]
