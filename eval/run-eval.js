@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT, IG_HEADER_ABIERTO, INSTAGRAM_CHANNEL_RULES } from '../prompt.js';
-import { cargoSunPass, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, resultadoConFechas, MINIMO_DIAS } from '../cotizacion.js';
+import { cargoSunPass, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, resultadoConFechas, pasarAlAnioSiguiente, MINIMO_DIAS } from '../cotizacion.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -153,8 +153,15 @@ function executeMockTool(toolName, toolInput, caso) {
   // su cuenta, podría dar PASS con una cuenta que el server hace distinto.
   const { startDateTime, endDateTime, destinos, puertoDeCruceros } = toolInput || {};
   let rango = null;
+  let avisoAnio = null;
   if (startDateTime && endDateTime) {
     rango = prepararRango(startDateTime, endDateTime);
+    // Igual que server.js: retiro ya pasado → se cotiza el año siguiente.
+    const corrido = pasarAlAnioSiguiente(rango.startDateTime, rango.endDateTime, floridaTodayISO());
+    if (corrido) {
+      avisoAnio = corrido.aviso;
+      rango = { ...prepararRango(corrido.startDateTime, corrido.endDateTime), horariosEstimados: rango.horariosEstimados };
+    }
     const errorFechas = errorFechasPasadas(rango.startDateTime, rango.endDateTime);
     if (errorFechas) return JSON.stringify({ error: errorFechas });
     if (rango.dias == null) return JSON.stringify({ error: 'La devolución tiene que ser posterior al retiro. Confirmá fechas y horarios con el cliente.' });
@@ -184,7 +191,7 @@ function executeMockTool(toolName, toolInput, caso) {
     horariosEstimados: rango.horariosEstimados,
   }));
   // Igual que server.js: la flota completa para nombrar los ocupados.
-  return JSON.stringify(resultadoConFechas(cotizados, MOCK_CARS));
+  return JSON.stringify(resultadoConFechas(cotizados, MOCK_CARS, { avisoAnio }));
 }
 
 // ─── Keyword check ────────────────────────────────────────────────────────────

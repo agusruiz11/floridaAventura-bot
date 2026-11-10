@@ -3,11 +3,12 @@ import express from 'express';
 import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { SYSTEM_PROMPT, IG_HEADER_CERRADO, IG_HEADER_ABIERTO, INSTAGRAM_CHANNEL_RULES } from './prompt.js';
-import { cargoSunPass, formatoUSD, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, resultadoConFechas, MINIMO_DIAS } from './cotizacion.js';
+import { cargoSunPass, formatoUSD, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, resultadoConFechas, pasarAlAnioSiguiente, MINIMO_DIAS } from './cotizacion.js';
 import { crearAgrupador } from './agrupar.js';
 import { crearAlertas } from './alertas.js';
 import { crearTokenIg } from './ig-token.js';
 import { crearGuardadoEnRailway } from './railway-vars.js';
+import { crearFotosIg, RUTA_FOTO_IG } from './ig-fotos.js';
 
 const app = express();
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -24,6 +25,13 @@ app.use((req, res, next) => {
 // Guardamos el body crudo para validar la firma de los webhooks de Meta
 app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(express.static('public'));
+
+// Fotos .webp/.avif convertidas a JPEG para Instagram (ver ig-fotos.js). Necesita
+// la URL pública del bot: PUBLIC_BASE_URL, o el dominio que Railway expone solo.
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL ||
+  (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '');
+const fotosIg = crearFotosIg({ baseUrl: PUBLIC_BASE_URL });
+app.get(RUTA_FOTO_IG, fotosIg.servir);
 
 // ─── Tool definitions ────────────────────────────────────────────────────────
 
@@ -172,9 +180,20 @@ async function executeTool(toolName, toolInput) {
     // Con fechas: completa las horas que falten (07:00 / 20:00), valida que no
     // estén en el pasado y calcula los días antes de consultar la API.
     let rango = null;
+    let avisoAnio = null;
     if (startDateTime && endDateTime) {
       rango = prepararRango(startDateTime, endDateTime);
       ({ startDateTime, endDateTime } = rango);
+
+      // Retiro ya pasado con el año en curso ("enero" en noviembre): se cotiza el
+      // año siguiente en vez de frenar a preguntar (ver pasarAlAnioSiguiente).
+      const corrido = pasarAlAnioSiguiente(startDateTime, endDateTime, floridaTodayISO());
+      if (corrido) {
+        console.log(`[buscar_autos] Fechas pasadas ${startDateTime.slice(0, 10)} → ${endDateTime.slice(0, 10)}: cotizo el año siguiente`);
+        avisoAnio = corrido.aviso;
+        rango = { ...prepararRango(corrido.startDateTime, corrido.endDateTime), horariosEstimados: rango.horariosEstimados };
+        ({ startDateTime, endDateTime } = rango);
+      }
 
       const errorFechas = errorFechasPasadas(startDateTime, endDateTime);
       if (errorFechas) {
@@ -236,7 +255,7 @@ async function executeTool(toolName, toolInput) {
       devolucion: rango.devolucion,
       horariosEstimados: rango.horariosEstimados,
     }));
-    const resultado = resultadoConFechas(cotizados, flota);
+    const resultado = resultadoConFechas(cotizados, flota, { avisoAnio });
     if (resultado.noDisponiblesEnEstasFechas) {
       console.log(`[buscar_autos] Ocupados en esas fechas: ${resultado.noDisponiblesEnEstasFechas.join(', ')}`);
     }
@@ -866,13 +885,6 @@ async function handleIgMessage(senderId, text, cantidad = 1) {
   await igSendSequence(senderId, outbound);
 }
 
-// Instagram rechaza estas fotos con "Upload attachment failure" (code 100,
-// subcode 2018047). Se mira la URL sin querystring ni fragmento.
-function formatoNoSoportadoPorIg(url) {
-  const ruta = String(url || '').split(/[?#]/)[0].toLowerCase();
-  return ruta.endsWith('.avif') || ruta.endsWith('.webp');
-}
-
 // Echo de la tarjeta de Meta "¿Marcar conversación como buena para tu negocio?":
 // sin texto y con todos los adjuntos de tipo template sin elementos. Payload real:
 // {"attachments":[{"type":"template","payload":{"generic":{"elements":[]}}}],"is_echo":true}
@@ -923,11 +935,14 @@ function buildIgOutbound(result, leadNote = '', trailNote = '') {
     pushText(mergeIntro && i === 0 ? `${introFull}\n\n${car.text}` : car.text);
     const img = findImageFor(car.name, images);
     if (!img) return;
-    if (formatoNoSoportadoPorIg(img.url)) {
-      console.log(`[ig] Foto en formato no soportado por Instagram: ${car.name} ${img.url}`);
+    // .webp y .avif van convertidas a JPEG por /ig-foto (ver ig-fotos.js).
+    const url = fotosIg.urlParaIg(img.url);
+    if (!url) {
+      console.log(`[ig] Foto en formato no soportado por Instagram: ${car.name} ${img.url} (sin PUBLIC_BASE_URL para convertirla)`);
       return;
     }
-    pushImage(img.url);
+    if (url !== img.url) console.log(`[ig] Foto de ${car.name} va convertida a JPEG: ${url} ← ${img.url}`);
+    pushImage(url);
   });
 
   if (outro.trim()) pushText(outro);
@@ -1393,6 +1408,9 @@ app.post('/webhook', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Florida Aventura Bot corriendo en http://localhost:${PORT}`);
+  console.log(PUBLIC_BASE_URL
+    ? `[ig] Fotos .webp/.avif: se convierten a JPEG en ${PUBLIC_BASE_URL}/ig-foto/`
+    : '[ig] Fotos .webp/.avif: no se mandan (falta PUBLIC_BASE_URL / RAILWAY_PUBLIC_DOMAIN)');
   console.log(`[ig] Canal Instagram: ${(process.env.IG_ENABLED || 'true') === 'false' ? 'APAGADO' : `activo ${IG_BOT_START_HOUR}:00–${IG_BOT_END_HOUR}:00 (${IG_TZ})`}`);
   // Deja escrito en qué modo arrancó, para confirmar de un vistazo si la prueba
   // de turno completo está encendida o si volvimos al turno nocturno.

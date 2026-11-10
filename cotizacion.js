@@ -173,14 +173,43 @@ export function cotizarAuto(car, dias, sunPass, puertoDeCruceros) {
 // tenemos", cuando estaba en la flota pero ocupado). Por eso, si hay autos de la
 // flota que no están libres, el resultado los nombra aparte. Sin ocupados (o sin
 // la flota a mano) queda la lista de siempre.
-export function resultadoConFechas(cotizados, flota) {
-  if (!Array.isArray(flota) || flota.length === 0) return cotizados;
+export function resultadoConFechas(cotizados, flota, { avisoAnio } = {}) {
   const libres = new Set(cotizados.map((c) => c.name));
-  const ocupados = [...new Set(flota.map((c) => c.name))].filter((n) => n && !libres.has(n));
-  if (ocupados.length === 0) return cotizados;
+  const ocupados = Array.isArray(flota)
+    ? [...new Set(flota.map((c) => c.name))].filter((n) => n && !libres.has(n))
+    : [];
+  if (ocupados.length === 0 && !avisoAnio) return cotizados;
   return {
     autosDisponibles: cotizados,
-    noDisponiblesEnEstasFechas: ocupados,
-    nota: 'autosDisponibles son los autos libres para estas fechas. Los de noDisponiblesEnEstasFechas SÍ son de la flota, pero están ocupados en estas fechas: si el cliente pregunta por alguno, decile que no está disponible para esas fechas (nunca que no lo tenemos ni que no existe) y ofrecé alternativas de autosDisponibles. No los muestres como opciones ni les inventes precio.',
+    ...(ocupados.length
+      ? {
+          noDisponiblesEnEstasFechas: ocupados,
+          nota: 'autosDisponibles son los autos libres para estas fechas. Los de noDisponiblesEnEstasFechas SÍ son de la flota, pero están ocupados en estas fechas: si el cliente pregunta por alguno, decile que no está disponible para esas fechas (nunca que no lo tenemos ni que no existe) y ofrecé alternativas de autosDisponibles. No los muestres como opciones ni les inventes precio.',
+        }
+      : {}),
+    ...(avisoAnio ? { fechasCorridasAlAnioSiguiente: avisoAnio } : {}),
+  };
+}
+
+// El modelo a veces arma "3 de enero" con el año en curso cuando esa fecha ya
+// pasó (en noviembre de 2026, "enero" es enero de 2027). Antes se cortaba con un
+// error y el modelo le preguntaba el año al cliente en vez de cotizar. Ahora, si
+// el retiro ya pasó y el mismo rango un año después es futuro, se corre un año.
+// Devuelve { startDateTime, endDateTime, aviso } corridas, o null si no corresponde
+// (no pasó, pasó hace más de un año, o la fecha corrida no existe: 29/2).
+export function pasarAlAnioSiguiente(startDateTime, endDateTime, hoy) {
+  if (startDateTime.slice(0, 10) >= hoy) return null;
+  const mas1 = (f) => `${Number(f.slice(0, 4)) + 1}${f.slice(4)}`;
+  const existe = (f) => {
+    const d = new Date(`${f.slice(0, 10)}T12:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === f.slice(0, 10);
+  };
+  const start = mas1(startDateTime);
+  const end = mas1(endDateTime);
+  if (start.slice(0, 10) < hoy || !existe(start) || !existe(end)) return null;
+  return {
+    startDateTime: start,
+    endDateTime: end,
+    aviso: `Pediste ${startDateTime.slice(0, 10)} → ${endDateTime.slice(0, 10)}, que ya pasó: se cotizó ${start.slice(0, 10)} → ${end.slice(0, 10)}. Cotizá normalmente con estas fechas; solo si el cliente dijo un año explícito distinto, aclaráselo.`,
   };
 }

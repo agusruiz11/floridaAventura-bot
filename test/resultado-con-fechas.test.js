@@ -30,3 +30,29 @@ test('colores repetidos de la flota no se duplican', () => {
   const r = resultadoConFechas([], [{ name: 'VW Atlas' }, { name: 'VW Atlas' }]);
   assert.deepEqual(r.noDisponiblesEnEstasFechas, ['VW Atlas']);
 });
+
+test('fecha ya pasada con el año en curso: se corre al año siguiente', async () => {
+  const { pasarAlAnioSiguiente } = await import('../cotizacion.js');
+  const r = pasarAlAnioSiguiente('2026-01-03T07:00:00', '2026-01-08T20:00:00', '2026-11-10');
+  assert.equal(r.startDateTime, '2027-01-03T07:00:00');
+  assert.equal(r.endDateTime, '2027-01-08T20:00:00');
+  assert.match(r.aviso, /ya pasó/);
+  // Un rango que cruza el año también se corre entero.
+  assert.equal(pasarAlAnioSiguiente('2025-12-28T07:00:00', '2026-01-05T20:00:00', '2026-11-10').endDateTime, '2027-01-05T20:00:00');
+});
+
+test('no corre fechas futuras, de hace más de un año, ni un 29/2 que no existe', async () => {
+  const { pasarAlAnioSiguiente } = await import('../cotizacion.js');
+  assert.equal(pasarAlAnioSiguiente('2027-01-03T07:00:00', '2027-01-08T20:00:00', '2026-11-10'), null);
+  assert.equal(pasarAlAnioSiguiente('2026-11-10T07:00:00', '2026-11-15T20:00:00', '2026-11-10'), null);
+  assert.equal(pasarAlAnioSiguiente('2024-01-03T07:00:00', '2024-01-08T20:00:00', '2026-11-10'), null);
+  assert.equal(pasarAlAnioSiguiente('2024-02-29T07:00:00', '2024-03-05T20:00:00', '2024-11-10'), null);
+});
+
+test('con el año corrido, el resultado lleva el aviso aunque no haya ocupados', () => {
+  const libres = flota.map((c) => ({ ...c, total: '1' }));
+  const r = resultadoConFechas(libres, flota, { avisoAnio: 'se cotizó 2027' });
+  assert.deepEqual(r.autosDisponibles, libres);
+  assert.equal(r.fechasCorridasAlAnioSiguiente, 'se cotizó 2027');
+  assert.equal(r.noDisponiblesEnEstasFechas, undefined);
+});
