@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import Anthropic from '@anthropic-ai/sdk';
-import { SYSTEM_PROMPT } from '../prompt.js';
-import { cargoSunPass, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, MINIMO_DIAS } from '../cotizacion.js';
+import { SYSTEM_PROMPT, IG_HEADER_ABIERTO, INSTAGRAM_CHANNEL_RULES } from '../prompt.js';
+import { cargoSunPass, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, resultadoConFechas, MINIMO_DIAS } from '../cotizacion.js';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -141,7 +141,8 @@ function errorFechasPasadas(startDateTime, endDateTime) {
   return null;
 }
 
-function executeMockTool(toolName, toolInput, caseId) {
+function executeMockTool(toolName, toolInput, caso) {
+  const caseId = caso.id;
   if (toolName !== 'buscar_autos') throw new Error(`Herramienta desconocida: ${toolName}`);
 
   // Mismo camino y mismo orden que executeTool en server.js: validación de
@@ -169,13 +170,21 @@ function executeMockTool(toolName, toolInput, caseId) {
 
   if (!rango) return JSON.stringify(MOCK_CARS);
 
+  // mock_ocupados: autos que existen en la flota pero no están libres para las
+  // fechas del caso (con fechas no vuelven; sin fechas, sí).
+  // EVAL_OCUPADOS="Auto A,Auto B" simula ocupados en todos los casos (como en producción).
+  const ocupados = caso.mock_ocupados || (process.env.EVAL_OCUPADOS ? process.env.EVAL_OCUPADOS.split(',').map((n) => n.trim()) : []);
+  const libres = MOCK_CARS.filter((car) => !ocupados.includes(car.name));
+
   const sunPass = cargoSunPass(rango.dias, destinos);
-  return JSON.stringify(MOCK_CARS.map((car) => ({
+  const cotizados = libres.map((car) => ({
     ...cotizarAuto(car, rango.dias, sunPass, puertoDeCruceros),
     retiro: rango.retiro,
     devolucion: rango.devolucion,
     horariosEstimados: rango.horariosEstimados,
-  })));
+  }));
+  // Igual que server.js: la flota completa para nombrar los ocupados.
+  return JSON.stringify(resultadoConFechas(cotizados, MOCK_CARS));
 }
 
 // ─── Keyword check ────────────────────────────────────────────────────────────
@@ -206,8 +215,13 @@ async function runCase(caso, input, today) {
   // Misma estructura que server.js: el prompt estable primero y con cache_control,
   // la fecha DESPUES del breakpoint. Si la fecha fuera arriba invalidaria el cache
   // del prompt entero, que es lo que hace cara cada corrida del eval.
+  // canal "instagram": el mismo prompt que arma server.js para Instagram con la
+  // oficina abierta (`${SYSTEM_PROMPT}\n\n${instagramSuffix()}`).
+  const prompt = caso.canal === 'instagram'
+    ? `${SYSTEM_PROMPT}\n\n\n${IG_HEADER_ABIERTO}\n\n${INSTAGRAM_CHANNEL_RULES}`
+    : SYSTEM_PROMPT;
   const system = [
-    { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: prompt, cache_control: { type: 'ephemeral' } },
     {
       type: 'text',
       text: `Hoy es ${today}. Cuando el cliente mencione fechas sin año, usá siempre el año corriente o el siguiente si la fecha ya pasó.`,
@@ -267,7 +281,7 @@ async function runCase(caso, input, today) {
 
         let toolContent;
         try {
-          toolContent = executeMockTool(block.name, block.input, caso.id);
+          toolContent = executeMockTool(block.name, block.input, caso);
         } catch (err) {
           toolContent = JSON.stringify({ error: err.message });
         }
@@ -344,6 +358,11 @@ async function main() {
       ...checkKeywords(respuesta, caso.keywords_fail),
       ...checkCondicionales(respuesta, caso.keywords_fail_condicional),
     ];
+    // debe_buscar (opcional): FAIL si el modelo llamó, o no, a buscar_autos.
+    if (typeof caso.debe_buscar === 'boolean' && metricas) {
+      const busco = metricas.buscar_autos.length > 0;
+      if (busco !== caso.debe_buscar) failFound.push(caso.debe_buscar ? 'no llamó a buscar_autos' : 'llamó a buscar_autos');
+    }
     const autoResult = getAutoResult(passFound, failFound);
 
     const cortada = metricas?.stop_reasons.includes('max_tokens') ? ' (cortada por max_tokens)' : '';
@@ -352,6 +371,7 @@ async function main() {
     results.push({
       id: caso.id,
       categoria: caso.categoria,
+      canal: caso.canal || 'web',
       input,
       respuesta,
       keywords_pass_encontradas: passFound,

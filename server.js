@@ -2,8 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import crypto from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
-import { SYSTEM_PROMPT } from './prompt.js';
-import { cargoSunPass, formatoUSD, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, MINIMO_DIAS } from './cotizacion.js';
+import { SYSTEM_PROMPT, IG_HEADER_CERRADO, IG_HEADER_ABIERTO, INSTAGRAM_CHANNEL_RULES } from './prompt.js';
+import { cargoSunPass, formatoUSD, cotizarAuto, prepararRango, respuestaMinimoNoCumplido, resultadoConFechas, MINIMO_DIAS } from './cotizacion.js';
 import { crearAgrupador } from './agrupar.js';
 import { crearAlertas } from './alertas.js';
 import { crearTokenIg } from './ig-token.js';
@@ -191,10 +191,19 @@ async function executeTool(toolName, toolInput) {
     }
 
     let data;
+    let flota = null;
     if (rango) {
       console.log(`[buscar_autos] Consultando disponibilidad: ${startDateTime} → ${endDateTime}${rango.horariosEstimados ? ' (horarios estimados)' : ''}`);
       const params = new URLSearchParams({ startDateTime, endDateTime });
-      data = await faFetch(`/availability?${params}`);
+      // La flota completa, en paralelo, solo para nombrar los autos ocupados
+      // (ver resultadoConFechas). Si falla, se cotiza igual, como antes.
+      [data, flota] = await Promise.all([
+        faFetch(`/availability?${params}`),
+        faFetch('/cars').catch((err) => {
+          console.warn(`[buscar_autos] No pude traer la flota completa: ${err.message}`);
+          return null;
+        }),
+      ]);
       console.log(`[buscar_autos] Autos disponibles: ${data.length}`);
     } else {
       console.log(`[buscar_autos] Sin fechas — devolviendo catálogo completo`);
@@ -227,7 +236,11 @@ async function executeTool(toolName, toolInput) {
       devolucion: rango.devolucion,
       horariosEstimados: rango.horariosEstimados,
     }));
-    return { json: JSON.stringify(cotizados), images };
+    const resultado = resultadoConFechas(cotizados, flota);
+    if (resultado.noDisponiblesEnEstasFechas) {
+      console.log(`[buscar_autos] Ocupados en esas fechas: ${resultado.noDisponiblesEnEstasFechas.join(', ')}`);
+    }
+    return { json: JSON.stringify(resultado), images };
   }
 
   throw new Error(`Herramienta desconocida: ${toolName}`);
@@ -297,48 +310,8 @@ function isOfficeOpenNow() {
 // Solo sale con la oficina cerrada: con la oficina abierta no hay nada que aclarar.
 const IG_CLOSED_NOTE = 'En este momento estamos cerrados, pero en mi rol de Asistente Comercial puedo contestar tus dudas y cotizar el alquiler de tu auto. De todas formas quedate tranquilo que mañana durante la mañana te podés contactar directamente con Patricia.';
 
-// Encabezado del bloque de Instagram. Cambia según la oficina esté abierta o
-// cerrada; lo que sigue (las reglas del canal) es igual en los dos casos.
-const IG_HEADER_CERRADO = `━━━━━━━━━━━━━━━━━━━━━━━ CANAL INSTAGRAM — HORARIO NOCTURNO ━━━━━━━━━━━━━━━━━━━━━━━
-Estás atendiendo por Instagram fuera del horario comercial: la empresa está cerrada y Patricia atiende personalmente durante el día. Podés responder consultas y cotizar con normalidad. Si el cliente necesita hablar con una persona, aclarale con calidez que Patricia lo va a contactar durante la mañana.`;
-
-const IG_HEADER_ABIERTO = `━━━━━━━━━━━━━━━━━━━━━━━ CANAL INSTAGRAM — HORARIO COMERCIAL ━━━━━━━━━━━━━━━━━━━━━━━
-Estás atendiendo por Instagram dentro del horario comercial. Nunca digas que estamos cerrados ni que Patricia contesta "mañana". Podés responder consultas y cotizar con normalidad. Si el cliente necesita hablar con una persona, pasale el WhatsApp de Patricia (https://wa.me/13057731787) y aclarale que igual puede seguir la charla por acá.`;
-
-// Contexto extra que se le agrega al prompt SOLO en el canal Instagram
-const INSTAGRAM_CHANNEL_RULES = `REGLAS DE ESTE CANAL — TIENEN PRIORIDAD SOBRE LAS SECCIONES DE ARRIBA
-Instagram es un DM: cada bloque de auto se envía como un mensaje separado. Una lista larga se convierte en una ráfaga de mensajes que abruma al cliente. Por eso acá el criterio es "pocas opciones y bien elegidas", no "todas".
-
-1) ANTES DE BUSCAR — CALIFICÁ MEJOR
-Además de las fechas, en este canal necesitás dos datos más antes de llamar a buscar_autos (los horarios no hacen falta: si el cliente no los dio, se cotiza con los horarios estimados):
-— Cuántas valijas llevan. Es el factor que realmente limita qué auto sirve.
-— Qué destinos piensan visitar. Define el cargo de SunPass y si les conviene un auto más amplio.
-Preguntalos de forma natural y en un mismo mensaje, respetando el máximo de 2 preguntas por mensaje. Ejemplo: "¡Buenísimo! ¿Cuántas valijas llevan y qué lugares tienen pensado visitar? Con eso te muestro las opciones que mejor les van."
-Si el cliente no sabe o no contesta, no insistas más de una vez: buscá igual y mostrá las 3 opciones más versátiles.
-Sigue vigente la regla de NUNCA sugerir modelos ni categorías antes de llamar a buscar_autos.
-
-2) AL PRESENTAR — MÁXIMO 3 AUTOS
-Llamá a buscar_autos normalmente, pero mostrale al cliente SOLO LOS 3 QUE MEJOR SE AJUSTAN a lo que pidió. Esto reemplaza la regla de "mostrá TODOS los autos disponibles" de la sección CÓMO PRESENTAR LOS AUTOS: en Instagram nunca muestres más de 3.
-Para elegir esos 3 usás únicamente los datos reales que devuelve la herramienta:
-— suitcasesAmount ≥ las valijas que dijo el cliente. Es el criterio principal.
-— passengersAmount ≥ la cantidad de personas, si la mencionó.
-— Si pidió un tipo puntual (minivan, SUV, auto chico), solo autos de ese tipo.
-— A igualdad de condiciones, dale variedad de precio: una opción económica, una intermedia y una más amplia.
-Si hay menos de 3 disponibles, mostrá los que haya. Nunca completes la lista con autos que no estén en el resultado de la herramienta.
-El formato de cada auto es exactamente el de la sección CÓMO PRESENTAR LOS AUTOS — no lo abrevies ni le saques líneas. La foto de cada auto se envía automáticamente debajo de su bloque.
-
-3) SIEMPRE ACLARÁ QUE HAY MÁS OPCIONES
-Después del último auto, y antes del disclaimer de cotización, agregá una línea avisando que hay más opciones disponibles y ofreciendo pasarlas. Variá la redacción, no la repitas igual en cada conversación. Ejemplos:
-— "Estas son las 3 que mejor se ajustan a lo que me contaste, pero tenemos más disponibles para esas fechas. Si querés ver alguna en particular, decime y te la paso."
-— "Te dejo las 3 más convenientes para tu viaje. Hay otras opciones disponibles: si buscabas algo distinto (más chico, más grande, otro presupuesto), avisame y te muestro."
-Nunca digas un número exacto de autos restantes.
-Si el cliente pide otras opciones o un modelo puntual, volvé a llamar a buscar_autos con las mismas fechas y mostrale hasta 3 autos más, sin repetir los que ya le mandaste.
-
-4) SI EL CLIENTE TODAVÍA NO TIENE FECHAS
-Si el cliente dice que todavía no tiene fechas, que no sacó el pasaje o que solo sabe el mes o la temporada del viaje, no le pidas fechas exactas ni le festejes que "ya tiene el mes". Esto reemplaza, solo para este caso, la regla del ESTADO 1 de terminar preguntando las fechas.
-Respondé corto: contale que en la web puede probar distintas fechas y ver las opciones disponibles por su cuenta, y que cuando tenga un rango aproximado te lo pase y se lo cotizás.
-Terminá ese mensaje con el marcador [[LINK_WEB]] solo en la última línea. NO escribas vos la dirección web: el sistema saca el marcador y manda el link en un mensaje aparte, justo después del tuyo. Redactalo para que ese link se entienda solo. Ejemplo: "Te paso la web para que pruebes fechas y veas los autos disponibles. Cuando tengas un rango aproximado, escribime y te lo cotizo."
-Usá [[LINK_WEB]] una sola vez por conversación: si ya aparece en un mensaje tuyo anterior, no lo repitas. No lo uses cuando el cliente ya dio fechas, aunque sean aproximadas ("entre el 17 y el 18 de enero, unos 10 días"): en ese caso seguí el flujo normal y cotizá.`;
+// IG_HEADER_CERRADO, IG_HEADER_ABIERTO e INSTAGRAM_CHANNEL_RULES viven en
+// prompt.js, para que el eval use exactamente el mismo texto.
 
 // El bloque completo del canal Instagram. Con la oficina cerrada (el default)
 // devuelve exactamente el mismo texto que antes, para no invalidar el cache de
@@ -706,7 +679,8 @@ async function igSend(recipientId, message) {
   });
   if (!res.ok) {
     const cuerpo = await res.text();
-    console.error('[ig] Error enviando mensaje:', res.status, cuerpo);
+    const url = message.attachment?.payload?.url;
+    console.error('[ig] Error enviando mensaje:', res.status, cuerpo, ...(url ? [`— adjunto: ${url}`] : []));
     igToken.notarError(cuerpo, token);
   } else {
     const data = await res.json().catch(() => null);
@@ -892,6 +866,23 @@ async function handleIgMessage(senderId, text, cantidad = 1) {
   await igSendSequence(senderId, outbound);
 }
 
+// Instagram rechaza estas fotos con "Upload attachment failure" (code 100,
+// subcode 2018047). Se mira la URL sin querystring ni fragmento.
+function formatoNoSoportadoPorIg(url) {
+  const ruta = String(url || '').split(/[?#]/)[0].toLowerCase();
+  return ruta.endsWith('.avif') || ruta.endsWith('.webp');
+}
+
+// Echo de la tarjeta de Meta "¿Marcar conversación como buena para tu negocio?":
+// sin texto y con todos los adjuntos de tipo template sin elementos. Payload real:
+// {"attachments":[{"type":"template","payload":{"generic":{"elements":[]}}}],"is_echo":true}
+function esTarjetaMetaVacia(msg) {
+  if (msg?.text && msg.text.trim()) return false;
+  const adjuntos = msg?.attachments;
+  if (!Array.isArray(adjuntos) || adjuntos.length === 0) return false;
+  return adjuntos.every((a) => a?.type === 'template' && !(a?.payload?.generic?.elements?.length));
+}
+
 // Arma la secuencia de salida de una respuesta del bot. `leadNote` es el texto
 // que se antepone al primer mensaje (nota de "estamos cerrados" o de disculpa
 // por la demora); vacío si no corresponde ninguna. `trailNote` es el texto que
@@ -910,9 +901,9 @@ function buildIgOutbound(result, leadNote = '', trailNote = '') {
   const pushImage = (url) => outbound.push({ attachment: { type: 'image', payload: { url, is_reusable: false } } });
 
   if (cars.length === 0 || images.length === 0 || !sendImages) {
-    // Caso simple (sin autos o sin fotos): todo el texto y, si hay, las fotos al final
+    // Caso simple (sin bloques de auto o sin fotos): solo el texto. Fotos sueltas
+    // no: sin el bloque del auto arriba no se sabe de qué auto es cada una.
     pushText(leadNote ? `${leadNote}\n\n${result.text}` : result.text);
-    if (sendImages) for (const img of images.slice(0, IG_MAX_CARS)) pushImage(img.url);
     if (trailNote) outbound.push({ text: trailNote });
     return outbound;
   }
@@ -931,7 +922,12 @@ function buildIgOutbound(result, leadNote = '', trailNote = '') {
   shown.forEach((car, i) => {
     pushText(mergeIntro && i === 0 ? `${introFull}\n\n${car.text}` : car.text);
     const img = findImageFor(car.name, images);
-    if (img) pushImage(img.url);
+    if (!img) return;
+    if (formatoNoSoportadoPorIg(img.url)) {
+      console.log(`[ig] Foto en formato no soportado por Instagram: ${car.name} ${img.url}`);
+      return;
+    }
+    pushImage(img.url);
   });
 
   if (outro.trim()) pushText(outro);
@@ -1321,6 +1317,13 @@ app.post('/webhook', (req, res) => {
             if (enviando || mismoTexto) {
               if (msg.mid) ownMids.add(msg.mid);
               console.log(`[webhook] Echo propio para ${recipientId} (llegó antes que el message_id) — lo ignoro`);
+              continue;
+            }
+            // Tarjeta de Meta "¿Marcar conversación como buena para tu
+            // negocio?" en las charlas que vienen de un anuncio: llega como echo
+            // sin texto, pero no la mandó Patricia. No pausa ni toca el agrupador.
+            if (esTarjetaMetaVacia(msg)) {
+              console.log(`[handoff] Tarjeta de Meta sin contenido para ${recipientId}, no pauso`);
               continue;
             }
             // Respuesta automática de Instagram (pregunta frecuente): no es

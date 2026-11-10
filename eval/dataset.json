@@ -1127,5 +1127,88 @@
       "km por litro",
       "muy eficiente"
     ]
+  },
+  {
+    "id": "C9",
+    "categoria": "C - Búsqueda de autos",
+    "input": "Esa no es la New Kicks",
+    "debe_hacer": "Volver a buscar y, como con esas fechas la New Kicks no figura, decir que no está disponible para esas fechas y ofrecer alternativas del resultado",
+    "no_debe_hacer": "Decir que la New Kicks no la tenemos o que el único Kicks de la flota es el 2024 (la búsqueda con fechas solo trae los autos libres)",
+    "keywords_pass": [
+      "no está disponible",
+      "no esta disponible",
+      "no la tenemos disponible",
+      "ocupad"
+    ],
+    "keywords_fail": [
+      "no lo tenemos",
+      "no la tenemos.",
+      "no tenemos",
+      "único kicks",
+      "única kicks",
+      "único nissan kicks",
+      "no manejamos",
+      "no existe"
+    ],
+    "mock_ocupados": [
+      "Nissan New Kicks"
+    ],
+    "historial_previo": [
+      {
+        "role": "user",
+        "content": "Hola, soy Luis. Necesito un auto del 26 de enero al 6 de febrero de 2027, retiro a las 15 y devuelvo a las 18. Llevamos 3 o 4 valijas."
+      },
+      {
+        "role": "assistant",
+        "content": "¡Hola, Luis! Para esas fechas te muestro una opción:\n\n**MEDIUM Nissan Kicks 2024**\n📅 Del 26 de enero al 6 de febrero · Retiro 15:00, devolución 18:00\n💰 USD 54/día × 12 días | 👥 5 pasajeros | 🧳 aprox. 3 valijas | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida) | ⛽ Tanque lleno al retirar y al devolver | 👤 1 conductor adicional incluido\n💵 Total: USD 678 (USD 648 por 12 días + USD 30 SunPass)\n→ SUV mediana 2024, color gris, para 5 pasajeros y aprox. 3 valijas\n\n_📋 Estos valores son una estimación orientativa. El cargo de SunPass puede variar según los destinos que visites y la duración del viaje. Los montos y la disponibilidad definitivos se confirman con nuestro equipo comercial al momento de la reserva._"
+      }
+    ]
+  },
+  {
+    "id": "J1",
+    "categoria": "J - Instagram",
+    "canal": "instagram",
+    "input": "Presupuesto por auto para 4 del 3/4 al 7/8 de enero de Miami",
+    "debe_hacer": "Llamar a buscar_autos en el primer turno con el rango más largo (3 al 8 de enero), mostrar 3 opciones con total, aclarar que con menos días baja y cerrar con una sola pregunta (valijas / destinos)",
+    "no_debe_hacer": "Preguntar fechas, valijas o destinos antes de mostrar precios",
+    "debe_buscar": true,
+    "keywords_pass": [
+      "Total: USD"
+    ],
+    "keywords_fail": [
+      "antes de buscar",
+      "¿Retiran el auto"
+    ]
+  },
+  {
+    "id": "J2",
+    "categoria": "J - Instagram",
+    "canal": "instagram",
+    "input": "Hola, somos 4 personas, necesitaríamos un auto del 4 al 13 de diciembre. Me pasas presupuestos con valor total? Retiraríamos en el aeropuerto",
+    "debe_hacer": "Llamar a buscar_autos en el primer turno, mostrar 3 opciones con total y cerrar con una sola pregunta (valijas / destinos)",
+    "no_debe_hacer": "Preguntar valijas o destinos antes de mostrar precios",
+    "debe_buscar": true,
+    "keywords_pass": [
+      "Total: USD"
+    ],
+    "keywords_fail": [
+      "antes de buscar"
+    ]
+  },
+  {
+    "id": "J3",
+    "categoria": "J - Instagram",
+    "canal": "instagram",
+    "input": "Hola, quiero alquilar un auto en enero",
+    "debe_hacer": "Sin fechas: no buscar; seguir la regla 4 (probar fechas en la web, marcador [[LINK_WEB]] al final)",
+    "no_debe_hacer": "Llamar a buscar_autos, mostrar precios o pedir fechas exactas",
+    "debe_buscar": false,
+    "keywords_pass": [
+      "[[LINK_WEB]]",
+      "web"
+    ],
+    "keywords_fail": [
+      "USD"
+    ]
   }
 ]

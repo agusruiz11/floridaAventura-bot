@@ -167,3 +167,20 @@ export function cotizarAuto(car, dias, sunPass, puertoDeCruceros) {
     lineaTotal: `💵 Total: USD ${formatoUSD(total)} (${partes.join(' + ')})`,
   };
 }
+
+// Con fechas, la API devuelve solo los autos libres. Si el modelo ve únicamente
+// esa lista, deduce que lo que no aparece no existe ("el New Kicks no lo
+// tenemos", cuando estaba en la flota pero ocupado). Por eso, si hay autos de la
+// flota que no están libres, el resultado los nombra aparte. Sin ocupados (o sin
+// la flota a mano) queda la lista de siempre.
+export function resultadoConFechas(cotizados, flota) {
+  if (!Array.isArray(flota) || flota.length === 0) return cotizados;
+  const libres = new Set(cotizados.map((c) => c.name));
+  const ocupados = [...new Set(flota.map((c) => c.name))].filter((n) => n && !libres.has(n));
+  if (ocupados.length === 0) return cotizados;
+  return {
+    autosDisponibles: cotizados,
+    noDisponiblesEnEstasFechas: ocupados,
+    nota: 'autosDisponibles son los autos libres para estas fechas. Los de noDisponiblesEnEstasFechas SÍ son de la flota, pero están ocupados en estas fechas: si el cliente pregunta por alguno, decile que no está disponible para esas fechas (nunca que no lo tenemos ni que no existe) y ofrecé alternativas de autosDisponibles. No los muestres como opciones ni les inventes precio.',
+  };
+}
