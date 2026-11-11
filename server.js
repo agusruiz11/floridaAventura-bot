@@ -63,7 +63,7 @@ const TOOLS = [
           description:
             'Destinos fuera de Miami que el cliente dijo que va a visitar (ej: ["Orlando", "Naples"]). ' +
             'Sirve para calcular el cargo de SunPass. Omitilo si el cliente todavía no mencionó destinos: ' +
-            'en ese caso se usa la tarifa estimada para Miami. Opcional.',
+            'en ese caso se cotiza el SunPass para recorrer Miami. Opcional.',
         },
         puertoDeCruceros: {
           type: 'boolean',
@@ -151,6 +151,16 @@ function extractQuickReplies(text) {
 // TODOS los canales, así nunca le llega a nadie aunque el modelo lo use donde no va.
 const LINK_WEB_RE = /[ \t]*\[\[\s*LINK_WEB\s*\]\][ \t]*/gi;
 const IG_WEB_LINK_NOTE = 'Acá podés probar distintas fechas y ver las opciones disponibles: https://www.floridaaventura.com/';
+// Con autos en la respuesta (Instagram, debajo de la lista corta) el link es para
+// ver toda la flota con fotos, no para probar fechas (pedido de Patricia, 11/11/2026).
+const IG_WEB_FLOTA_URL = process.env.IG_WEB_FLOTA_URL || 'https://www.floridaaventura.com/';
+const IG_WEB_FLOTA_NOTE = `Acá podés ver todos los autos con sus fotos: ${IG_WEB_FLOTA_URL}`;
+
+// Qué texto acompaña al link según la respuesta: con bloques de auto, el de la
+// flota; sin bloques (cliente sin fechas), el de siempre.
+function notaLinkWeb(text) {
+  return splitIntoSegments(text || '').cars.length > 0 ? IG_WEB_FLOTA_NOTE : IG_WEB_LINK_NOTE;
+}
 
 function extractLinkWeb(text) {
   const linkWeb = /\[\[\s*LINK_WEB\s*\]\]/i.test(text);
@@ -886,8 +896,12 @@ async function handleIgMessage(senderId, text, cantidad = 1) {
 
   // Si el modelo pidió el link a la web, va como último mensaje de la ráfaga.
   // Si igual escribió la dirección en el texto, no la mandamos dos veces.
-  const mandarLinkWeb = !!result.linkWeb && !/floridaaventura\.com/i.test(result.text || '');
-  if (result.linkWeb) console.log(`[ig] Link a la web pedido para ${senderId}${mandarLinkWeb ? '' : ' (ya venía en el texto, no lo duplico)'}`);
+  const textoBot = (result.text || '').toLowerCase();
+  const notaLink = result.linkWeb ? notaLinkWeb(result.text) : '';
+  const yaTieneLink = textoBot.includes('floridaaventura.com') ||
+    textoBot.includes(IG_WEB_FLOTA_URL.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, ''));
+  const mandarLinkWeb = !!result.linkWeb && !yaTieneLink;
+  if (result.linkWeb) console.log(`[ig] Link a la web pedido para ${senderId} (${notaLink === IG_WEB_FLOTA_NOTE ? 'flota con fotos' : 'probar fechas'})${mandarLinkWeb ? '' : ' (ya venía en el texto, no lo duplico)'}`);
 
   // En la historia queda el marcador, así en el turno siguiente el modelo ve que
   // ya mandó el link y no lo repite.
@@ -899,7 +913,7 @@ async function handleIgMessage(senderId, text, cantidad = 1) {
   const outbound = buildIgOutbound(
     result,
     isFirstReply && !isOfficeOpenNow() ? IG_CLOSED_NOTE : '',
-    mandarLinkWeb ? IG_WEB_LINK_NOTE : ''
+    mandarLinkWeb ? notaLink : ''
   );
   console.log(`[ig] Enviando ${outbound.length} mensajes (pausa ~${IG_MSG_DELAY_MS}ms ±${IG_MSG_JITTER_MS}ms)`);
   await igSendSequence(senderId, outbound);
@@ -1430,6 +1444,8 @@ app.post('/webhook', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Florida Aventura Bot corriendo en http://localhost:${PORT}`);
+  // Para confirmar en los logs de Railway con qué modelo corre (BOT_MODEL / BOT_EFFORT).
+  console.log(`[bot] Modelo ${MODEL} | effort ${EFFORT}`);
   console.log(PUBLIC_BASE_URL
     ? `[ig] Fotos .webp/.avif: se convierten a JPEG en ${PUBLIC_BASE_URL}/ig-foto/`
     : '[ig] Fotos .webp/.avif: no se mandan (falta PUBLIC_BASE_URL / RAILWAY_PUBLIC_DOMAIN)');

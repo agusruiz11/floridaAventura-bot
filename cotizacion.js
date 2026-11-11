@@ -68,7 +68,7 @@ export function respuestaMinimoNoCumplido(rango) {
     horariosEstimados: rango.horariosEstimados,
     instruccion:
       `El período da ${rango.dias} ${rango.dias === 1 ? 'día' : 'días'} (bloques de 24 horas desde la hora de retiro` +
-      `${rango.horariosEstimados ? `, con horarios estimados de retiro ${rango.retiro} y devolución ${rango.devolucion}` : ''}). ` +
+      `${rango.horariosEstimados ? `, con los horarios por defecto de retiro ${rango.retiro} y devolución ${rango.devolucion}` : ''}). ` +
       `Florida Aventura no alquila por menos de ${MINIMO_DIAS} días: informáselo al cliente con amabilidad y firmeza, ` +
       'sin excepciones ni alternativas, sin derivar a Patricia ni pasar el WhatsApp. No muestres autos ni precios.',
   };
@@ -110,9 +110,10 @@ export function cargoSunPass(dias, destinos) {
   if (!reconocidos.length) {
     return {
       monto: Math.ceil(dias / 7) * 15,
-      // Sin la palabra "base": el prompt la prohíbe (el cliente la lee como "precio
-      // de entrada") y el modelo copia este texto tal cual en la respuesta.
-      detalle: 'tarifa estimada para Miami (puede variar según los destinos del viaje)',
+      // El modelo copia este texto tal cual en la respuesta. Sin "base" (el cliente
+      // la lee como "precio de entrada") ni "estimado" / "puede variar": Patricia
+      // cobra exactamente el total que se le pasa (11/11/2026).
+      detalle: 'SunPass para recorrer Miami. Si van a otros destinos, se suma el de cada uno',
       esEstimado: true,
     };
   }

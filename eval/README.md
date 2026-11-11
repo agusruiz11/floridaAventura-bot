@@ -6,7 +6,7 @@ Eval de nivel 2: el script manda cada caso al bot real (misma API, mismo system 
 
 ```
 eval/
-├── dataset.json     # 59 casos de prueba organizados por categoría
+├── dataset.json     # 65 casos de prueba organizados por categoría
 ├── run-eval.js      # Script principal: corre los casos y genera el reporte
 ├── review.js        # Script interactivo de revisión manual
 ├── results/         # Archivos JSON generados (YYYY-MM-DD-HH-mm.json)
@@ -21,7 +21,7 @@ eval/
 node eval/run-eval.js
 ```
 
-Corre los 59 casos, muestra progreso en consola y guarda los resultados en `eval/results/`.
+Corre los 65 casos, muestra progreso en consola y guarda los resultados en `eval/results/`.
 
 ### 2. Correr solo una categoría
 
@@ -112,10 +112,14 @@ Campos opcionales:
 - `historial_previo`: array de `{role, content}` para simular contexto previo
 - `mock_behavior`: `"error"` (buscar_autos falla) o `"empty"` (devuelve sin autos)
 - `keywords_fail_condicional`: `[{ "si_aparece": [...], "y_falta": [...] }]` → FAIL si aparece alguna de `si_aparece` y ninguna de `y_falta` (ej. C7: cotizar con `USD` sin derivar con `wa.me`/`Patricia`)
+- `termina_con`: texto con el que tiene que terminar la respuesta (sin espacios finales); si no, FAIL (ej. J4: `[[LINK_WEB]]` debajo de la lista corta)
+- `min_lineas_con`: `{ "prefijo": "•", "minimo": 3 }` → FAIL si hay menos de `minimo` líneas que empiecen con `prefijo` (ej. J4: la lista corta, una línea por auto)
 
 Fechas relativas: en `input`, `{{fecha:+N}}` se reemplaza por "D de mes" contando N días desde la fecha que el eval inyecta en el system prompt (ej: `desde hoy {{fecha:+0}} hasta el {{fecha:+6}}`). Usalo en todo caso que dependa de "hoy".
 
 ## Parámetros del modelo
+
+**El eval tiene que correr con el modelo de producción.** Producción usa `claude-opus-5-5` (variable `BOT_MODEL` en Railway); el default del código (`claude-sonnet-5`) es otro modelo y da resultados distintos. Poné `BOT_MODEL=claude-opus-5-5` en el `.env` local (el eval lo lee con dotenv) y fijate que la línea `Modelo …` que imprime al arrancar, y `resumen.config.model` en el JSON, digan ese modelo. Si cambia el modelo en Railway, cambialo también en el `.env`. Una corrida con otro modelo sirve para comparar, no para aprobar un cambio.
 
 Por defecto el eval llama al modelo igual que `runBot` en `server.js`. Se pueden cambiar por entorno:
 

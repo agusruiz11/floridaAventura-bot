@@ -196,7 +196,7 @@ async function buscar(e) {
 function pintarBusqueda() {
   const { rango, fechas, avisos, autos } = estado.busqueda;
   $('resumen-busqueda').textContent =
-    `${fechas} · Retiro ${rango.retiro}, devolución ${rango.devolucion}${rango.horariosEstimados ? ' (horarios estimados)' : ''} · ` +
+    `${fechas} · Retiro ${rango.retiro}, devolución ${rango.devolucion}${rango.horariosEstimados ? ' (horario a confirmar)' : ''} · ` +
     `${autos.length} ${autos.length === 1 ? 'auto disponible' : 'autos disponibles'}`;
   const caja = $('avisos-busqueda');
   caja.replaceChildren(...(avisos || []).map((a) => el('p', { text: a })));
@@ -412,8 +412,8 @@ function pintarHoja(c, elegidos) {
     el('dl', { class: 'hoja-viaje' }, [
       dato('Fechas', c.fechas),
       dato('Duración', dias),
-      dato('Retiro', `${c.rango.retiro} hs${c.rango.horariosEstimados ? ' (estimado)' : ''}${lugarEntrega ? ` · ${lugarEntrega}` : ''}`),
-      dato('Devolución', `${c.rango.devolucion} hs${c.rango.horariosEstimados ? ' (estimado)' : ''}${lugarDevolucion ? ` · ${lugarDevolucion}` : ''}`),
+      dato('Retiro', `${c.rango.retiro} hs${c.rango.horariosEstimados ? ' (horario a confirmar)' : ''}${lugarEntrega ? ` · ${lugarEntrega}` : ''}`),
+      dato('Devolución', `${c.rango.devolucion} hs${c.rango.horariosEstimados ? ' (horario a confirmar)' : ''}${lugarDevolucion ? ` · ${lugarDevolucion}` : ''}`),
     ]),
     el('h3', { text: elegidos.length === 1 ? 'Opción' : 'Opciones' }),
     ...elegidos.map((a) => {
@@ -449,9 +449,9 @@ function pintarHoja(c, elegidos) {
       el('li', { text: '1 conductor adicional' }),
     ]),
     c.rango.horariosEstimados
-      ? el('p', { class: 'hoja-letra', text: `Cotizado con retiro a las ${c.rango.retiro} y devolución a las ${c.rango.devolucion}. Con tus horarios exactos se ajusta el total.` })
+      ? el('p', { class: 'hoja-letra', text: `Coticé con retiro a las ${c.rango.retiro} y devolución a las ${c.rango.devolucion}. Si son otros horarios, pasámelos y te confirmo el total.` })
       : null,
-    el('p', { class: 'hoja-letra', text: 'Estos valores son una estimación orientativa. El cargo de SunPass puede variar según los destinos que visites y la duración del viaje. Los montos y la disponibilidad definitivos se confirman con nuestro equipo comercial al momento de la reserva.' }),
+    el('p', { class: 'hoja-letra', text: 'Es el precio final: incluye seguro, kilometraje ilimitado en Florida, SunPass y un conductor adicional. Si cambian las fechas, los horarios o los destinos, te lo recalculo.' }),
     el('footer', { class: 'hoja-pie' }, [
       el('span', { text: `WhatsApp ${WHATSAPP}` }),
       el('span', { text: 'floridaaventura.com' }),

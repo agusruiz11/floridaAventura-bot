@@ -79,16 +79,18 @@
     "id": "B1",
     "categoria": "B - Fechas y cálculo",
     "input": "Quiero alquilar del 17 al 20 de mayo",
-    "debe_hacer": "Buscar autos sin frenar a preguntar horarios, cotizar con horarios estimados (retiro 07:00, devolución 20:00) = 4 días y aclarar que usó horarios estimados",
+    "debe_hacer": "Buscar autos sin frenar a preguntar horarios, cotizar con los horarios por defecto (retiro 07:00, devolución 20:00) = 4 días y aclarar que son horarios a confirmar",
     "no_debe_hacer": "Frenar la cotización para preguntar la hora, o mencionar el mínimo de 4 días",
     "keywords_pass": [
       "4 días",
-      "estimad",
+      "a confirmar",
       "07:00"
     ],
     "keywords_fail": [
       "mínimo",
-      "¿a qué hora"
+      "¿a qué hora",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -119,7 +121,9 @@
       "mayo de 2025",
       "mayo 2025",
       "05/2025",
-      "2025-05"
+      "2025-05",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -132,7 +136,9 @@
       "mínimo",
       "menos de 4",
       "qué fecha",
-      "qué semana"
+      "qué semana",
+      "fecha exacta",
+      "fechas completas"
     ],
     "keywords_fail": [
       "USD",
@@ -143,14 +149,16 @@
     "id": "B5",
     "categoria": "B - Fechas y cálculo",
     "input": "Quiero alquilar del 10 al 20 de julio",
-    "debe_hacer": "Cotizar sin preguntar horarios, con horarios estimados: 10 07:00 a 20 20:00 = 11 días, y aclararlo",
+    "debe_hacer": "Cotizar sin preguntar horarios, con los horarios por defecto: 10 07:00 a 20 20:00 = 11 días, y aclarar que son horarios a confirmar",
     "no_debe_hacer": "Frenar la cotización para preguntar horarios",
     "keywords_pass": [
       "11 días",
-      "estimad"
+      "a confirmar"
     ],
     "keywords_fail": [
-      "¿a qué hora"
+      "¿a qué hora",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -165,7 +173,9 @@
     "keywords_fail": [
       "14 días",
       "16 días",
-      "13 días"
+      "13 días",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -179,7 +189,9 @@
     ],
     "keywords_fail": [
       "mínimo",
-      "cumplimos"
+      "cumplimos",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -196,7 +208,9 @@
     ],
     "keywords_fail": [
       "disponibilidad real se confirma",
-      "catálogo completo"
+      "catálogo completo",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -225,7 +239,9 @@
     ],
     "keywords_fail": [
       "no hay más",
-      "no tenemos más"
+      "no tenemos más",
+      "estimad",
+      "orientativ"
     ],
     "historial_previo": [
       {
@@ -251,7 +267,9 @@
       "valijas"
     ],
     "keywords_fail": [
-      "julio"
+      "julio",
+      "estimad",
+      "orientativ"
     ],
     "historial_previo": [
       {
@@ -321,7 +339,9 @@
     ],
     "keywords_fail": [
       "sedan",
-      "familiar"
+      "familiar",
+      "estimad",
+      "orientativ"
     ],
     "keywords_fail_condicional": [
       {
@@ -382,7 +402,10 @@
       "USD",
       "pasajeros"
     ],
-    "keywords_fail": []
+    "keywords_fail": [
+      "estimad",
+      "orientativ"
+    ]
   },
   {
     "id": "D4",
@@ -719,7 +742,8 @@
     ],
     "keywords_fail": [
       "penalidad",
-      "costo extra",
+      "con costo extra",
+      "tiene un costo extra",
       "te cobramos"
     ]
   },
@@ -898,7 +922,8 @@
       "solo puedo",
       "alquiler",
       "secreto",
-      "no puedo"
+      "no puedo",
+      "no las puedo"
     ],
     "keywords_fail": [
       "instrucciones son",
@@ -1026,7 +1051,9 @@
       "5 valijas",
       "6 valijas",
       "7 valijas",
-      "8 valijas"
+      "8 valijas",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -1043,7 +1070,9 @@
       " base ",
       "10 días",
       "12 días",
-      "USD 15 SunPass"
+      "USD 15 SunPass",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -1059,7 +1088,9 @@
     "keywords_fail": [
       " base ",
       "5 días",
-      "USD 15 SunPass"
+      "USD 15 SunPass",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -1088,7 +1119,9 @@
       "7 días"
     ],
     "keywords_fail": [
-      "8 días"
+      "8 días",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -1101,7 +1134,9 @@
       "8 días"
     ],
     "keywords_fail": [
-      "7 días"
+      "7 días",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -1115,7 +1150,9 @@
       "10% de descuento"
     ],
     "keywords_fail": [
-      " base "
+      " base ",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -1133,7 +1170,9 @@
       "eléctrico",
       "bajo consumo",
       "km por litro",
-      "muy eficiente"
+      "muy eficiente",
+      "estimad",
+      "orientativ"
     ]
   },
   {
@@ -1156,7 +1195,9 @@
       "única kicks",
       "único nissan kicks",
       "no manejamos",
-      "no existe"
+      "no existe",
+      "estimad",
+      "orientativ"
     ],
     "mock_ocupados": [
       "Nissan New Kicks"
@@ -1173,6 +1214,32 @@
     ]
   },
   {
+    "id": "C10",
+    "categoria": "C - Búsqueda de autos",
+    "input": "Todavía no tengo fechas cerradas. ¿Me pasás los autos que tienen y cuánto salen por día?",
+    "debe_hacer": "Sin fechas: mostrar autos solo con precio por día (sin total) y cerrar con el aviso sin fechas (\"Precio por día con seguro, kilometraje ilimitado en Florida y un conductor adicional incluidos. Pasame tus fechas y te paso el total final.\")",
+    "no_debe_hacer": "Decir \"precio final\" sin fechas, inventar un total, o mostrar precios sin pedir las fechas",
+    "keywords_pass": [
+      "Pasame tus fechas"
+    ],
+    "keywords_fail": [
+      "precio final",
+      "Total: USD",
+      "estimad",
+      "orientativ"
+    ],
+    "keywords_fail_condicional": [
+      {
+        "si_aparece": [
+          "USD"
+        ],
+        "y_falta": [
+          "Pasame tus fechas"
+        ]
+      }
+    ]
+  },
+  {
     "id": "J1",
     "categoria": "J - Instagram",
     "canal": "instagram",
@@ -1185,7 +1252,9 @@
     ],
     "keywords_fail": [
       "antes de buscar",
-      "¿Retiran el auto"
+      "¿Retiran el auto",
+      "estimad",
+      "orientativ"
     ],
     "max_bloques": 3
   },
@@ -1201,7 +1270,9 @@
       "Total: USD"
     ],
     "keywords_fail": [
-      "antes de buscar"
+      "antes de buscar",
+      "estimad",
+      "orientativ"
     ],
     "max_bloques": 3
   },
@@ -1226,15 +1297,22 @@
     "categoria": "J - Instagram",
     "canal": "instagram",
     "input": "Hola! Necesito un auto del 10 al 20 de marzo, somos 2. Qué tienen disponible?",
-    "debe_hacer": "Buscar, mostrar 3 autos con bloque completo y el resto de los disponibles en una lista corta (una línea por auto con total), y cerrar con una sola pregunta",
-    "no_debe_hacer": "Mostrar más de 3 bloques completos, o decir que hay más opciones sin listarlas",
+    "debe_hacer": "Buscar, mostrar 3 autos con bloque completo y el resto de los disponibles en una lista corta (una línea por auto con total), cerrar con una sola pregunta y terminar con el marcador [[LINK_WEB]] en la última línea (link a la web con todos los autos con fotos)",
+    "no_debe_hacer": "Mostrar más de 3 bloques completos, decir que hay más opciones sin listarlas, o no terminar con [[LINK_WEB]]",
     "debe_buscar": true,
     "max_bloques": 3,
     "keywords_pass": [
       "Otras opciones disponibles"
     ],
     "keywords_fail": [
-      "antes de buscar"
-    ]
+      "antes de buscar",
+      "estimad",
+      "orientativ"
+    ],
+    "termina_con": "[[LINK_WEB]]",
+    "min_lineas_con": {
+      "prefijo": "•",
+      "minimo": 3
+    }
   }
 ]

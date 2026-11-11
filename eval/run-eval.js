@@ -85,7 +85,7 @@ const TOOLS = [
           description:
             'Destinos fuera de Miami que el cliente dijo que va a visitar (ej: ["Orlando", "Naples"]). ' +
             'Sirve para calcular el cargo de SunPass. Omitilo si el cliente todavía no mencionó destinos: ' +
-            'en ese caso se usa la tarifa estimada para Miami. Opcional.',
+            'en ese caso se cotiza el SunPass para recorrer Miami. Opcional.',
         },
         puertoDeCruceros: {
           type: 'boolean',
@@ -370,6 +370,19 @@ async function main() {
     if (typeof caso.max_bloques === 'number') {
       const bloques = (respuesta.match(/\*\*(SMALL|MEDIUM|LARGE)\s/g) || []).length;
       if (bloques > caso.max_bloques) failFound.push(`${bloques} bloques de auto (máx ${caso.max_bloques})`);
+    }
+    // termina_con (opcional): FAIL si la respuesta no termina con ese texto
+    // (ej. J4: el marcador [[LINK_WEB]] en la última línea).
+    if (caso.termina_con && !respuesta.trim().endsWith(caso.termina_con)) {
+      failFound.push(`no termina con ${caso.termina_con}`);
+    }
+    // min_lineas_con (opcional): { prefijo, minimo } → FAIL si hay menos de
+    // `minimo` líneas que empiecen con `prefijo` (ej. J4: la lista corta, una
+    // línea por auto con "•", no todo en un renglón separado con ";").
+    if (caso.min_lineas_con) {
+      const { prefijo, minimo } = caso.min_lineas_con;
+      const lineas = respuesta.split('\n').filter((l) => l.trimStart().startsWith(prefijo)).length;
+      if (lineas < minimo) failFound.push(`${lineas} líneas con "${prefijo}" (mín ${minimo})`);
     }
     // debe_buscar (opcional): FAIL si el modelo llamó, o no, a buscar_autos.
     if (typeof caso.debe_buscar === 'boolean' && metricas) {

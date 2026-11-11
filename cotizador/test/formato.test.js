@@ -14,7 +14,7 @@ test('bloque de auto igual al del bot (22 de mayo al 4 de junio, Orlando)', () =
   const car = cotizarAuto(HRV, rango.dias, sunPass, false);
   assert.equal(bloqueAuto(car, rango), [
     '🚗 Honda HRV 2025 — Chico',
-    '📅 Del 22 de mayo al 4 de junio · Retiro 07:00, devolución 20:00 (horarios estimados)',
+    '📅 Del 22 de mayo al 4 de junio · Retiro 07:00, devolución 20:00 (horario a confirmar)',
     '💰 USD 55/día × 14 días | 👥 5 pasajeros | 🧳 aprox. 2 valijas | ✅ Seguro incluido | 🛣️ KM ilimitado (solo Florida) | ⛽ Tanque lleno al retirar y al devolver | 👤 1 conductor adicional incluido',
     '💵 Total: USD 808 (USD 770 por 14 días + USD 38 SunPass)',
   ].join('\n'));
@@ -38,16 +38,17 @@ test('fechas en el mismo mes y con horarios dados', () => {
   assert.ok(bloque.includes('× 15 días'));
 });
 
-test('cierre: horarios estimados, SunPass estimado, descuento y aviso', () => {
+test('cierre: horarios por defecto, SunPass de Miami, descuento y aviso de precio final', () => {
   const rango = prepararRango('2027-05-01', '2027-05-20');
   const sunPass = cargoSunPass(rango.dias, []);
   const autos = [cotizarAuto(HRV, rango.dias, sunPass, false)];
   const texto = cierre({ autos, rango, sunPass });
-  assert.ok(texto.includes('Coticé con retiro a las 07:00 y devolución a las 20:00.'));
+  assert.ok(texto.includes('Coticé con retiro a las 07:00 y devolución a las 20:00. Si son otros horarios, pasámelos y te confirmo el total.'));
   assert.ok(texto.includes('ya tiene aplicado un 10% de descuento sobre el alquiler'));
-  assert.ok(texto.includes(`El cargo de SunPass estimado es de USD ${sunPass.monto} (tarifa estimada para Miami)`));
+  assert.ok(texto.includes('SunPass para recorrer Miami. Si van a otros destinos, se suma el de cada uno.'));
   assert.doesNotMatch(texto, /\bbase\b/i);
-  assert.ok(texto.includes('📋 Estos valores son una estimación orientativa.'));
+  assert.ok(texto.includes('📋 Es el precio final: incluye seguro, kilometraje ilimitado en Florida, SunPass y un conductor adicional. Si cambian las fechas, los horarios o los destinos, te lo recalculo.'));
+  assert.doesNotMatch(texto, /estimad|estimaci|orientativ|aproximad|puede variar/i);
   assert.ok(texto.endsWith('¿Te sirve esta opción?'));
 });
 
@@ -56,7 +57,7 @@ test('cierre sin aclaraciones cuando hay horarios y destinos', () => {
   const sunPass = cargoSunPass(rango.dias, ['Orlando']);
   const autos = [HRV, ATLAS].map((c) => cotizarAuto(c, rango.dias, sunPass, false));
   const texto = cierre({ autos, rango, sunPass });
-  assert.ok(texto.startsWith('📋 Estos valores'));
+  assert.ok(texto.startsWith('📋 Es el precio final'));
   assert.ok(texto.endsWith('¿Alguna de estas opciones te sirve?'));
 });
 
@@ -74,9 +75,9 @@ test('nombre sin año', () => {
 });
 
 // El bot copia sunPassDetalle en la respuesta, y el prompt prohíbe "base" para precios.
-test('el detalle del SunPass estimado no dice "base"', () => {
+test('el detalle del SunPass de Miami no dice "base" ni "estimado"', () => {
   const rango = prepararRango('2027-09-01T07:00:00', '2027-09-11T20:00:00');
   const sunPass = cargoSunPass(rango.dias, []);
-  assert.equal(sunPass.detalle, 'tarifa estimada para Miami (puede variar según los destinos del viaje)');
-  assert.doesNotMatch(cotizarAuto(HRV, rango.dias, sunPass, false).sunPassDetalle, /\bbase\b/i);
+  assert.equal(sunPass.detalle, 'SunPass para recorrer Miami. Si van a otros destinos, se suma el de cada uno');
+  assert.doesNotMatch(cotizarAuto(HRV, rango.dias, sunPass, false).sunPassDetalle, /\bbase\b|estimad|puede variar/i);
 });

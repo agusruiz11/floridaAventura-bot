@@ -11,7 +11,10 @@ const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', '
 const TAMANIOS = { SMALL: 'Chico', MEDIUM: 'Mediano', LARGE: 'Grande' };
 
 export const AVISO_COTIZACION =
-  '📋 Estos valores son una estimación orientativa. El cargo de SunPass puede variar según los destinos que visites y la duración del viaje. Los montos y la disponibilidad definitivos se confirman con nuestro equipo comercial al momento de la reserva.';
+  '📋 Es el precio final: incluye seguro, kilometraje ilimitado en Florida, SunPass y un conductor adicional. Si cambian las fechas, los horarios o los destinos, te lo recalculo.';
+export const AVISO_HORARIOS = (retiro, devolucion) =>
+  `Coticé con retiro a las ${retiro} y devolución a las ${devolucion}. Si son otros horarios, pasámelos y te confirmo el total.`;
+export const AVISO_SUNPASS_MIAMI = 'SunPass para recorrer Miami. Si van a otros destinos, se suma el de cada uno.';
 export const AVISO_7_PASAJEROS =
   'Tené en cuenta que los 7 asientos se logran usando el espacio del baúl para la tercera fila. Si viajan con valijas, el auto entra cómodamente 5 personas.';
 
@@ -43,7 +46,7 @@ export function bloqueAuto(car, rango) {
   if (rango) {
     lineas.push(
       `📅 ${textoFechas(rango.startDateTime, rango.endDateTime)} · Retiro ${rango.retiro}, devolución ${rango.devolucion}` +
-      `${rango.horariosEstimados ? ' (horarios estimados)' : ''}`,
+      `${rango.horariosEstimados ? ' (horario a confirmar)' : ''}`,
     );
   }
   const partes = [`💰 USD ${formatoUSD(car.pricePerDay)}/día × ${plural(car.dias, 'día', 'días')}`];
@@ -61,13 +64,13 @@ export function bloqueAuto(car, rango) {
 export function cierre({ autos, rango, sunPass, sunPassAjustado = false }) {
   const parrafos = [];
   if (rango?.horariosEstimados) {
-    parrafos.push(`Coticé con retiro a las ${rango.retiro} y devolución a las ${rango.devolucion}. Si me pasás tus horarios exactos, ajusto el total.`);
+    parrafos.push(AVISO_HORARIOS(rango.retiro, rango.devolucion));
   }
   if (autos.some((a) => a.descuento)) {
     parrafos.push(`Como el alquiler es de ${DESCUENTO_DESDE_DIAS} días o más, ya tiene aplicado un ${DESCUENTO_PORCENTAJE}% de descuento sobre el alquiler.`);
   }
   if (sunPass?.esEstimado && !sunPassAjustado) {
-    parrafos.push(`El cargo de SunPass estimado es de USD ${formatoUSD(sunPass.monto)} (tarifa estimada para Miami). Puede variar según los destinos que visites durante tu viaje.`);
+    parrafos.push(AVISO_SUNPASS_MIAMI);
   }
   parrafos.push(AVISO_COTIZACION);
   parrafos.push(autos.length === 1 ? '¿Te sirve esta opción?' : '¿Alguna de estas opciones te sirve?');
